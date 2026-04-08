@@ -1,38 +1,34 @@
-# Core
-pydantic>=2.0,<3.0
-python-dateutil>=2.8
+# =============================================================
+# Reconciliation IA — Toutes les dependances
+# =============================================================
+# pip install -r requirements.txt
+# Python >= 3.10 requis
+# =============================================================
 
-# NLP & Fuzzy Matching
-rapidfuzz>=3.0
-unidecode>=1.3
-regex>=2023.0
+# ── Obligatoire (C0-C2, coeur du systeme) ──
+unidecode>=1.3              # C0 : deaccentuation des libelles
+numpy>=1.24                 # C4 : calcul de features, arrays
+pandas>=2.0                 # DataFrames pour simulation et export
 
-# Machine Learning
-scikit-learn>=1.3
-lightgbm>=4.0
-xgboost>=2.0
-numpy>=1.24
-pandas>=2.0
+# ── NLP & Fuzzy Matching (C3) ──
+rapidfuzz>=3.0              # C3 : 8 algorithmes fuzzy (Levenshtein, Jaro-Winkler, etc.)
 
-# Embeddings
-sentence-transformers>=2.2
+# ── Machine Learning (C4) ──
+scikit-learn>=1.3           # C3/C4 : TF-IDF, meta-classifieur, cross-validation
+lightgbm>=4.0               # C4 : modele ensemble LightGBM
+xgboost>=2.0                # C4 : modele ensemble XGBoost
 
-# Database
-sqlalchemy>=2.0
-psycopg2-binary>=2.9
+# ── Embeddings semantiques (C3 avance) ──
+sentence-transformers>=2.2  # C3 : embeddings multilingues (optionnel)
 
-# LLM
-openai>=1.0
-anthropic>=0.30
+# ── LLM / IA Generative (C5) ──
+anthropic>=0.30             # C5 : API Claude (optionnel)
+openai>=1.0                 # C5 : API GPT (optionnel)
 
-# Monitoring & MLOps
-prometheus-client>=0.17
-mlflow>=2.8
+# ── Demo Streamlit & Export HTML ──
+streamlit>=1.30             # App interactive de demonstration
+plotly>=5.18                # Graphiques interactifs (pie, bar, scatter, heatmap)
 
-# Testing
-pytest>=7.4
-pytest-asyncio>=0.21
-pytest-cov>=4.1
-
-# Utilities
-hashlib-additional>=1.0;python_version<"3.0"
+# ── Tests ──
+pytest>=7.4                 # Framework de tests (74 tests)
+pytest-cov>=4.1             # Couverture de code
