@@ -398,13 +398,19 @@ for method_name in method_order:
 
 
 # ============================================================
-# HTML GENERATION
+# HTML GENERATION — Premium UX Design
 # ============================================================
-print("Generating HTML...")
+print("Generating HTML (premium design)...")
 
-# Convert plotly figures to HTML divs
 def fig_to_div(fig, div_id):
     return fig.to_html(full_html=False, include_plotlyjs=False, div_id=div_id)
+
+# Update all plotly figures for consistent premium look
+for fig in [fig_pie, fig_monthly, fig_methods, fig_debtor, fig_country, fig_conf, fig_heat]:
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+        font=dict(family="Inter, system-ui, sans-serif", color="#334155"),
+    )
 
 pie_html = fig_to_div(fig_pie, "pie")
 monthly_html = fig_to_div(fig_monthly, "monthly")
@@ -413,23 +419,6 @@ debtor_html = fig_to_div(fig_debtor, "debtor")
 country_html = fig_to_div(fig_country, "country")
 conf_html = fig_to_div(fig_conf, "conf")
 heat_html = fig_to_div(fig_heat, "heat")
-
-# Build payment table (top 50)
-display = df.head(80).copy()
-table_rows = ""
-for _, r in display.iterrows():
-    layer_class = {"C1":"c1","C2":"c2","C3":"c3","C6":"c6"}.get(r["layer_name"],"c6")
-    conf_str = f"{r['confidence']:.0%}" if r["confidence"] > 0 else "—"
-    table_rows += f"""<tr>
-        <td>{r['payment_id']}</td><td>{r['date']}</td>
-        <td class="num">{r['amount']:,.2f}</td>
-        <td>{r['debtor_name'][:25]}</td>
-        <td class="label-cell">{r['label'][:35]}</td>
-        <td><span class="badge {layer_class}">{r['layer_name']}</span></td>
-        <td>{r['method'][:20]}</td>
-        <td class="num">{conf_str}</td>
-        <td>{r['flags'][:20]}</td>
-    </tr>"""
 
 # Deep dive HTML
 deep_html = ""
@@ -456,19 +445,24 @@ for ex in examples:
     invoices_str = row["invoices_matched"] if row["invoices_matched"] else "Aucune (revue humaine)"
 
     deep_html += f"""
-    <div class="deep-card">
-        <h3>{ex['title']}</h3>
+    <div class="deep">
+        <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
+            <h3 style="flex:1; margin:0;">{ex['title']}</h3>
+            <span class="badge {badge_cls}" style="font-size:0.85rem; padding:6px 16px;">
+                {row['layer_name']} &mdash; {conf_pct}</span>
+        </div>
         <div class="deep-meta">
             <span><b>ID:</b> {row['payment_id']}</span>
             <span><b>Montant:</b> {row['amount']:,.2f} EUR</span>
             <span><b>Date:</b> {row['date']}</span>
             <span><b>Debiteur:</b> {row['debtor_name']}</span>
-            <span class="badge {badge_cls}">{row['layer_name']} — {conf_pct}</span>
         </div>
-        <div class="deep-label"><b>Libelle:</b> <code>{row['label'] if row['label'] else '(vide)'}</code></div>
-        <div class="deep-steps"><b>Parcours pipeline :</b>{steps_html}</div>
-        <div class="deep-result"><b>Factures:</b> {invoices_str}</div>
-        {f'<div class="deep-flags"><b>Flags:</b> {row["flags"]}</div>' if row["flags"] else ""}
+        <div class="deep-label"><b>Libelle brut :</b><br><code>{row['label'] if row['label'] else '(vide)'}</code></div>
+        <div style="margin:12px 0;"><b>Parcours dans le pipeline :</b></div>
+        {steps_html}
+        <div style="margin-top:12px; padding:10px 16px; background:var(--green-light); border-radius:8px;">
+            <b>Factures matchees :</b> {invoices_str}</div>
+        {f'<div style="margin-top:8px; padding:8px 16px; background:var(--yellow-light); border-radius:8px;"><b>Flags :</b> {row["flags"]}</div>' if row["flags"] else ""}
     </div>"""
 
 # Debtor table
@@ -483,7 +477,9 @@ for _, r in debtor_stats.sort_values("taux", ascending=False).iterrows():
         <td class="num">{r['montant']:,.0f}</td>
     </tr>"""
 
-# Assemble
+# ============================================================
+# ASSEMBLE FINAL HTML
+# ============================================================
 total_eur = df["amount"].sum()
 
 html = f"""<!DOCTYPE html>
@@ -491,153 +487,222 @@ html = f"""<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Reconciliation IA — Demo Executive</title>
+<title>Reconciliation IA — Factoring</title>
 <script src="https://cdn.plot.ly/plotly-2.35.0.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
-  :root {{ --green:#10b981; --yellow:#f59e0b; --cyan:#06b6d4; --red:#ef4444;
-           --purple:#8b5cf6; --indigo:#667eea; --slate:#64748b; }}
+  :root {{
+    --green:#10b981; --green-light:#d1fae5; --green-dark:#065f46;
+    --yellow:#f59e0b; --yellow-light:#fef3c7; --yellow-dark:#92400e;
+    --cyan:#06b6d4; --red:#ef4444; --red-light:#fee2e2; --red-dark:#991b1b;
+    --purple:#8b5cf6; --pink:#ec4899; --indigo:#667eea;
+    --slate:#64748b; --slate-100:#f1f5f9; --slate-200:#e2e8f0; --slate-800:#1e293b;
+    --radius:14px; --shadow:0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.04);
+    --shadow-lg:0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px rgba(0,0,0,0.05);
+  }}
   * {{ margin:0; padding:0; box-sizing:border-box; }}
-  body {{ font-family:'Segoe UI',system-ui,-apple-system,sans-serif; background:#f8fafc; color:#1e293b; line-height:1.6; }}
-  .container {{ max-width:1200px; margin:0 auto; padding:20px; }}
-  h1 {{ font-size:2rem; margin-bottom:0.3rem; }}
-  h2 {{ font-size:1.5rem; margin:2.5rem 0 1rem; padding-bottom:0.5rem; border-bottom:2px solid #e2e8f0; }}
-  h3 {{ font-size:1.15rem; margin-bottom:0.5rem; }}
+  body {{ font-family:'Inter',system-ui,-apple-system,sans-serif; background:#f0f4f8;
+          color:var(--slate-800); line-height:1.65; -webkit-font-smoothing:antialiased; }}
+  .container {{ max-width:1280px; margin:0 auto; padding:0 24px; }}
+  h2 {{ font-size:1.4rem; font-weight:700; margin:3rem 0 1.2rem; color:var(--slate-800);
+        display:flex; align-items:center; gap:10px; }}
+  h2::before {{ content:''; width:4px; height:24px; background:var(--indigo); border-radius:2px; }}
+  h3 {{ font-size:1.05rem; font-weight:600; }}
 
-  /* Header */
-  .header {{ background:linear-gradient(135deg,#1e293b 0%,#334155 100%); color:white;
-             padding:2.5rem 0; margin-bottom:2rem; }}
-  .header h1 {{ font-size:2.2rem; }}
-  .header p {{ opacity:0.8; font-size:1.05rem; }}
-  .header .subtitle {{ display:flex; gap:2rem; margin-top:0.5rem; font-size:0.9rem; opacity:0.65; }}
+  /* ─── NAV ─── */
+  .nav {{ background:white; border-bottom:1px solid var(--slate-200); position:sticky; top:0; z-index:100;
+          box-shadow:var(--shadow); }}
+  .nav-inner {{ display:flex; align-items:center; gap:24px; padding:12px 0; overflow-x:auto; }}
+  .nav-brand {{ font-weight:800; font-size:1.1rem; color:var(--indigo); white-space:nowrap; }}
+  .nav a {{ color:var(--slate); font-size:0.85rem; font-weight:500; text-decoration:none;
+            padding:6px 14px; border-radius:8px; white-space:nowrap; transition:all 0.15s; }}
+  .nav a:hover {{ background:var(--slate-100); color:var(--slate-800); }}
 
-  /* KPI cards */
-  .kpis {{ display:grid; grid-template-columns:repeat(4,1fr); gap:16px; margin-bottom:2rem; }}
-  .kpi {{ background:white; border-radius:12px; padding:20px; text-align:center;
-          box-shadow:0 1px 3px rgba(0,0,0,0.1); border:1px solid #e2e8f0; }}
-  .kpi .value {{ font-size:2rem; font-weight:700; }}
-  .kpi .label {{ font-size:0.85rem; color:var(--slate); margin-top:4px; }}
-  .kpi.highlight {{ background:linear-gradient(135deg,var(--indigo),var(--purple)); color:white; }}
-  .kpi.highlight .label {{ color:rgba(255,255,255,0.8); }}
+  /* ─── HERO ─── */
+  .hero {{ background:linear-gradient(135deg,#0f172a 0%,#1e3a5f 50%,#1e293b 100%);
+           color:white; padding:3.5rem 0 3rem; margin-bottom:2.5rem; }}
+  .hero h1 {{ font-size:2.5rem; font-weight:800; letter-spacing:-0.03em; }}
+  .hero .sub {{ font-size:1.1rem; opacity:0.75; margin-top:0.5rem; font-weight:300; }}
+  .hero .tags {{ display:flex; gap:12px; margin-top:1.2rem; flex-wrap:wrap; }}
+  .hero .tag {{ background:rgba(255,255,255,0.12); backdrop-filter:blur(4px);
+                padding:6px 16px; border-radius:20px; font-size:0.82rem; font-weight:500;
+                border:1px solid rgba(255,255,255,0.15); }}
 
-  /* Charts grid */
-  .charts-2 {{ display:grid; grid-template-columns:1fr 1fr; gap:20px; margin:1rem 0; }}
-  .chart-box {{ background:white; border-radius:12px; padding:16px;
-                box-shadow:0 1px 3px rgba(0,0,0,0.08); border:1px solid #e2e8f0; }}
+  /* ─── KPI CARDS ─── */
+  .kpis {{ display:grid; grid-template-columns:repeat(4,1fr); gap:18px; margin-bottom:2.5rem; }}
+  .kpi {{ background:white; border-radius:var(--radius); padding:24px; text-align:center;
+          box-shadow:var(--shadow); border:1px solid var(--slate-200); transition:transform 0.15s; }}
+  .kpi:hover {{ transform:translateY(-2px); box-shadow:var(--shadow-lg); }}
+  .kpi .value {{ font-size:2.2rem; font-weight:800; letter-spacing:-0.02em; }}
+  .kpi .label {{ font-size:0.82rem; color:var(--slate); margin-top:6px; font-weight:500; }}
+  .kpi .sub-val {{ font-size:0.78rem; color:var(--slate); margin-top:2px; }}
+  .kpi.primary {{ background:linear-gradient(135deg,var(--indigo),var(--purple)); color:white; }}
+  .kpi.primary .label {{ color:rgba(255,255,255,0.80); }}
+  .kpi.success {{ border-bottom:3px solid var(--green); }}
+  .kpi.warning {{ border-bottom:3px solid var(--yellow); }}
+  .kpi.danger {{ border-bottom:3px solid var(--red); }}
 
-  /* Badges */
-  .badge {{ display:inline-block; padding:3px 12px; border-radius:20px; font-weight:600;
-            font-size:0.78rem; color:white; }}
-  .badge.c1 {{ background:var(--green); }} .badge.c2 {{ background:var(--yellow); }}
-  .badge.c3 {{ background:var(--cyan); }}  .badge.c6 {{ background:var(--red); }}
-  .badge-sm {{ display:inline-block; padding:1px 8px; border-radius:12px;
-               font-size:0.72rem; color:white; background:var(--indigo); }}
+  /* ─── CARDS & CHARTS ─── */
+  .card {{ background:white; border-radius:var(--radius); padding:20px;
+           box-shadow:var(--shadow); border:1px solid var(--slate-200); }}
+  .grid-2 {{ display:grid; grid-template-columns:1fr 1fr; gap:20px; margin:1rem 0; }}
 
-  /* Pipeline */
-  .pipeline {{ display:flex; gap:6px; align-items:center; flex-wrap:wrap;
-               justify-content:center; margin:1.5rem 0; }}
-  .pipe-box {{ padding:14px 18px; border-radius:10px; text-align:center; color:white; min-width:110px; }}
-  .pipe-box .layer {{ font-size:0.7rem; opacity:0.8; }} .pipe-box .name {{ font-weight:700; }}
-  .pipe-box .sub {{ font-size:0.72rem; opacity:0.75; }}
-  .pipe-arrow {{ font-size:1.4rem; color:#94a3b8; }}
+  /* ─── BADGES ─── */
+  .badge {{ display:inline-flex; align-items:center; padding:4px 14px; border-radius:20px;
+            font-weight:600; font-size:0.76rem; color:white; letter-spacing:0.02em; }}
+  .badge.c1 {{ background:var(--green); }} .badge.c2 {{ background:var(--yellow); color:#1c1917; }}
+  .badge.c3 {{ background:var(--cyan); }} .badge.c6 {{ background:var(--red); }}
+  .badge-sm {{ display:inline-block; padding:2px 10px; border-radius:12px;
+               font-size:0.72rem; color:white; background:var(--indigo); font-weight:600; }}
 
-  /* Tables */
-  table {{ width:100%; border-collapse:collapse; font-size:0.82rem; }}
-  th {{ background:#f1f5f9; padding:10px 8px; text-align:left; font-weight:600;
-       border-bottom:2px solid #e2e8f0; position:sticky; top:0; }}
-  td {{ padding:8px; border-bottom:1px solid #f1f5f9; }}
-  tr:hover {{ background:#f8fafc; }}
-  .num {{ text-align:right; font-variant-numeric:tabular-nums; }}
-  .label-cell {{ font-family:monospace; font-size:0.75rem; color:var(--slate); max-width:250px;
-                 overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }}
-  .rate-high {{ color:#065f46; font-weight:700; background:#d1fae5; text-align:center; border-radius:4px; }}
-  .rate-mid  {{ color:#92400e; font-weight:700; background:#fef3c7; text-align:center; border-radius:4px; }}
-  .rate-low  {{ color:#991b1b; font-weight:700; background:#fee2e2; text-align:center; border-radius:4px; }}
-  .table-scroll {{ max-height:500px; overflow-y:auto; border-radius:8px; border:1px solid #e2e8f0; }}
+  /* ─── PIPELINE ─── */
+  .pipeline {{ display:flex; gap:4px; align-items:center; flex-wrap:wrap;
+               justify-content:center; margin:2rem 0; }}
+  .pipe {{ padding:16px 20px; border-radius:12px; text-align:center; color:white;
+           min-width:115px; transition:transform 0.15s; box-shadow:0 2px 8px rgba(0,0,0,0.15); }}
+  .pipe:hover {{ transform:scale(1.05); }}
+  .pipe .lbl {{ font-size:0.65rem; text-transform:uppercase; letter-spacing:0.08em; opacity:0.8; }}
+  .pipe .nm {{ font-weight:700; font-size:0.95rem; }}
+  .pipe .conf {{ font-size:0.7rem; opacity:0.7; margin-top:2px; }}
+  .arrow {{ font-size:1.2rem; color:#cbd5e1; }}
 
-  /* Deep dive */
-  .deep-card {{ background:white; border-radius:12px; padding:20px; margin:16px 0;
-                box-shadow:0 1px 3px rgba(0,0,0,0.08); border:1px solid #e2e8f0; }}
-  .deep-meta {{ display:flex; gap:16px; flex-wrap:wrap; margin:8px 0; font-size:0.88rem; }}
-  .deep-label {{ margin:10px 0; }} .deep-label code {{ background:#f1f5f9; padding:4px 10px;
-    border-radius:4px; font-size:0.85rem; }}
-  .deep-steps {{ margin:10px 0; }}
-  .step {{ display:flex; align-items:center; gap:10px; padding:6px 14px; margin:3px 0;
-           border-radius:4px; font-size:0.85rem; }}
-  .step-pre {{ background:#f1f5f9; border-left:4px solid var(--purple); }}
-  .step-match {{ background:#f0fdf4; border-left:4px solid var(--green); }}
+  /* ─── TABLES ─── */
+  table {{ width:100%; border-collapse:separate; border-spacing:0; font-size:0.82rem; }}
+  thead th {{ background:var(--slate-100); padding:12px 10px; text-align:left; font-weight:600;
+              font-size:0.75rem; text-transform:uppercase; letter-spacing:0.04em;
+              color:var(--slate); border-bottom:2px solid var(--slate-200); position:sticky; top:0; z-index:2; }}
+  td {{ padding:10px; border-bottom:1px solid #f1f5f9; }}
+  tbody tr {{ transition:background 0.1s; }}
+  tbody tr:hover {{ background:#fefce8; }}
+  .num {{ text-align:right; font-variant-numeric:tabular-nums; font-weight:500; }}
+  .mono {{ font-family:'SF Mono',SFMono-Regular,Consolas,'Liberation Mono',Menlo,monospace;
+           font-size:0.75rem; color:#475569; }}
+  .rate-high {{ color:var(--green-dark); font-weight:700; background:var(--green-light);
+                padding:3px 10px; border-radius:6px; text-align:center; }}
+  .rate-mid  {{ color:var(--yellow-dark); font-weight:700; background:var(--yellow-light);
+                padding:3px 10px; border-radius:6px; text-align:center; }}
+  .rate-low  {{ color:var(--red-dark); font-weight:700; background:var(--red-light);
+                padding:3px 10px; border-radius:6px; text-align:center; }}
+  .tbl-wrap {{ overflow-x:auto; border-radius:var(--radius); border:1px solid var(--slate-200);
+               background:white; }}
+
+  /* ─── DEEP DIVE ─── */
+  .deep {{ background:white; border-radius:var(--radius); padding:24px; margin:16px 0;
+           box-shadow:var(--shadow); border:1px solid var(--slate-200); }}
+  .deep-meta {{ display:flex; gap:16px; flex-wrap:wrap; margin:10px 0; font-size:0.88rem; }}
+  .deep-meta span {{ background:var(--slate-100); padding:4px 12px; border-radius:8px; }}
+  .deep-label {{ margin:12px 0; }}
+  .deep-label code {{ background:#0f172a; color:#e2e8f0; padding:8px 16px; border-radius:8px;
+                      display:inline-block; font-size:0.85rem; font-weight:500; }}
+  .step {{ display:flex; align-items:center; gap:10px; padding:8px 16px; margin:4px 0;
+           border-radius:8px; font-size:0.85rem; }}
+  .step-pre {{ background:var(--slate-100); border-left:4px solid var(--purple); }}
+  .step-match {{ background:#ecfdf5; border-left:4px solid var(--green); }}
   .step-no {{ background:#fefce8; border-left:4px solid #d4d4d8; color:#71717a; }}
-  .time {{ margin-left:auto; color:#94a3b8; font-size:0.78rem; }}
-  .deep-result {{ margin-top:8px; font-size:0.9rem; }}
-  .deep-flags {{ margin-top:4px; font-size:0.85rem; color:var(--yellow); }}
+  .time {{ margin-left:auto; color:#94a3b8; font-size:0.78rem; font-weight:500; }}
 
-  /* Info box */
-  .info {{ background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px;
-           padding:12px 16px; margin:1rem 0; font-size:0.9rem; color:#1e40af; }}
+  /* ─── INFO BOX ─── */
+  .info {{ background:linear-gradient(135deg,#eff6ff,#f0f9ff); border:1px solid #bfdbfe;
+           border-radius:12px; padding:16px 20px; margin:1.2rem 0; font-size:0.9rem; color:#1e40af;
+           display:flex; gap:12px; align-items:flex-start; }}
+  .info::before {{ content:'i'; display:flex; align-items:center; justify-content:center;
+                   min-width:24px; height:24px; background:#3b82f6; color:white;
+                   border-radius:50%; font-size:0.75rem; font-weight:700; }}
 
-  /* Section divider */
-  .section {{ margin-top:3rem; }}
-
-  /* Catalogue accordion */
-  .method-group {{ background:white; border-radius:10px; margin:10px 0;
-                   border:1px solid #e2e8f0; overflow:hidden; }}
-  .method-header {{ display:flex; align-items:center; gap:12px; padding:14px 18px;
-                    cursor:pointer; user-select:none; }}
-  .method-header:hover {{ background:#f8fafc; }}
+  /* ─── ACCORDION ─── */
+  .method-group {{ background:white; border-radius:var(--radius); margin:12px 0;
+                   border:1px solid var(--slate-200); overflow:hidden; box-shadow:var(--shadow); }}
+  .method-header {{ display:flex; align-items:center; gap:14px; padding:16px 20px;
+                    cursor:pointer; user-select:none; transition:background 0.1s; }}
+  .method-header:hover {{ background:var(--slate-100); }}
   .method-title {{ font-weight:600; font-size:1rem; flex:1; }}
-  .method-count {{ color:var(--slate); font-size:0.85rem; }}
-  .chevron {{ color:var(--slate); transition:transform 0.2s; }}
+  .method-count {{ background:var(--slate-100); padding:3px 12px; border-radius:20px;
+                   font-size:0.8rem; font-weight:600; color:var(--slate); }}
+  .chevron {{ color:var(--slate); transition:transform 0.2s; font-size:0.8rem; }}
   .method-group.open .chevron {{ transform:rotate(180deg); }}
-  .method-body {{ display:none; padding:0 18px 18px; }}
+  .method-body {{ display:none; padding:0 20px 20px; }}
   .method-group.open .method-body {{ display:block; }}
-  .method-explanation {{ background:#eff6ff; border-left:4px solid var(--indigo);
-                         padding:10px 14px; border-radius:0 6px 6px 0;
-                         margin-bottom:12px; font-size:0.9rem; color:#1e40af; }}
-  .cat-table {{ width:100%; border-collapse:collapse; font-size:0.8rem; }}
-  .cat-table th {{ background:#f1f5f9; padding:8px 6px; text-align:left;
-                   font-weight:600; font-size:0.75rem; border-bottom:2px solid #e2e8f0;
-                   position:sticky; top:0; }}
-  .cat-table td {{ padding:6px; border-bottom:1px solid #f1f5f9; vertical-align:top; }}
-  .cat-table tr:hover {{ background:#fefce8; }}
-  .cat-table .label-cell {{ font-family:'Courier New',monospace; font-size:0.75rem;
-                            color:#475569; max-width:300px; word-break:break-all; }}
-  .cat-table .inv-cell {{ font-family:monospace; font-size:0.73rem; color:var(--green);
-                          max-width:200px; word-break:break-all; }}
-  .cat-table .flags-cell {{ font-size:0.73rem; color:var(--yellow); font-weight:600; }}
+  .method-explanation {{ background:linear-gradient(135deg,#eff6ff,#f0f9ff);
+                         border-left:4px solid var(--indigo); padding:14px 18px;
+                         border-radius:0 10px 10px 0; margin-bottom:16px;
+                         font-size:0.9rem; color:#1e40af; line-height:1.6; }}
+  .cat-table {{ width:100%; border-collapse:separate; border-spacing:0; font-size:0.8rem; }}
+  .cat-table thead th {{ background:var(--slate-100); padding:10px 8px; text-align:left;
+                         font-weight:600; font-size:0.72rem; text-transform:uppercase;
+                         letter-spacing:0.04em; color:var(--slate);
+                         border-bottom:2px solid var(--slate-200); position:sticky; top:0; z-index:2; }}
+  .cat-table td {{ padding:8px; border-bottom:1px solid #f8fafc; vertical-align:top; }}
+  .cat-table tbody tr {{ transition:background 0.1s; }}
+  .cat-table tbody tr:hover {{ background:#fffbeb; }}
+  .cat-table .label-cell {{ font-family:'SF Mono',Consolas,monospace; font-size:0.74rem;
+                            color:#475569; max-width:320px; word-break:break-all; line-height:1.4; }}
+  .cat-table .inv-cell {{ font-family:monospace; font-size:0.74rem; color:var(--green-dark);
+                          font-weight:600; max-width:220px; word-break:break-all; }}
+  .cat-table .flags-cell {{ font-size:0.72rem; font-weight:600; }}
+  .cat-table .flags-cell {{ color:var(--yellow-dark); background:var(--yellow-light);
+                            padding:2px 8px; border-radius:4px; white-space:nowrap; }}
 
-  /* Recommendation cells */
-  .reco-cell {{ padding:4px !important; }}
-  .reco-list {{ display:flex; flex-direction:column; gap:3px; }}
-  .reco-item {{ display:grid; grid-template-columns:22px 130px 80px 60px 36px 1fr;
-                gap:4px; align-items:center; font-size:0.72rem; padding:2px 4px;
-                background:#f8fafc; border-radius:3px; }}
-  .reco-rank {{ font-weight:700; color:var(--indigo); }}
-  .reco-ref {{ font-family:monospace; font-size:0.7rem; color:#334155; overflow:hidden;
-               text-overflow:ellipsis; white-space:nowrap; }}
-  .reco-amt {{ text-align:right; font-variant-numeric:tabular-nums; color:#475569; }}
-  .reco-bar {{ height:8px; background:#e2e8f0; border-radius:4px; overflow:hidden; }}
-  .reco-fill {{ display:block; height:100%; background:linear-gradient(90deg,var(--green),var(--indigo));
-                border-radius:4px; }}
+  /* ─── RECOMMENDATION ─── */
+  .reco-cell {{ padding:6px !important; }}
+  .reco-list {{ display:flex; flex-direction:column; gap:4px; }}
+  .reco-item {{ display:grid; grid-template-columns:24px 1fr 78px 55px 38px;
+                gap:6px; align-items:center; font-size:0.73rem; padding:5px 8px;
+                background:var(--slate-100); border-radius:6px; border:1px solid var(--slate-200); }}
+  .reco-item:first-child {{ background:#ecfdf5; border-color:#a7f3d0; }}
+  .reco-rank {{ font-weight:800; color:var(--indigo); font-size:0.8rem; }}
+  .reco-ref {{ font-family:monospace; font-size:0.7rem; color:var(--slate-800);
+               overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }}
+  .reco-amt {{ text-align:right; font-variant-numeric:tabular-nums; color:#475569; font-weight:500; }}
+  .reco-bar {{ height:10px; background:var(--slate-200); border-radius:5px; overflow:hidden; }}
+  .reco-fill {{ display:block; height:100%; border-radius:5px;
+                background:linear-gradient(90deg,var(--green),var(--indigo)); }}
   .reco-score {{ font-weight:700; color:var(--indigo); text-align:right; }}
-  .reco-reason {{ color:var(--slate); font-size:0.68rem; overflow:hidden;
-                  text-overflow:ellipsis; white-space:nowrap; }}
+  .reco-reason {{ grid-column:2/-1; color:var(--slate); font-size:0.68rem; padding-left:2px;
+                  font-style:italic; }}
 
-  @media(max-width:768px) {{ .kpis {{ grid-template-columns:repeat(2,1fr); }}
-    .charts-2 {{ grid-template-columns:1fr; }} }}
+  /* ─── BUTTONS ─── */
+  .btn {{ display:inline-flex; align-items:center; gap:6px; padding:8px 18px; border:1px solid var(--slate-200);
+          border-radius:8px; cursor:pointer; font-size:0.85rem; font-weight:500; background:white;
+          color:var(--slate-800); transition:all 0.15s; font-family:inherit; }}
+  .btn:hover {{ background:var(--slate-100); box-shadow:var(--shadow); }}
+  .btn-group {{ display:flex; gap:8px; margin-bottom:1.2rem; }}
+
+  /* ─── FOOTER ─── */
+  .footer {{ margin-top:4rem; padding:2.5rem 0; border-top:2px solid var(--slate-200);
+             text-align:center; color:var(--slate); }}
+
+  @media(max-width:900px) {{ .kpis {{ grid-template-columns:repeat(2,1fr); }}
+    .grid-2 {{ grid-template-columns:1fr; }} .pipeline {{ gap:2px; }}
+    .pipe {{ min-width:80px; padding:10px; }} .hero h1 {{ font-size:1.6rem; }} }}
 </style>
 </head>
 <body>
 
-<!-- HEADER -->
-<div class="header">
+<!-- NAV -->
+<div class="nav">
+<div class="container nav-inner">
+  <span class="nav-brand">Reconciliation IA</span>
+  <a href="#kpis">Dashboard</a>
+  <a href="#pipeline">Architecture</a>
+  <a href="#charts">Resultats</a>
+  <a href="#debtors">Debiteurs</a>
+  <a href="#deep">Deep Dive</a>
+  <a href="#catalogue">Catalogue</a>
+</div>
+</div>
+
+<!-- HERO -->
+<div class="hero">
 <div class="container">
-  <h1>Reconciliation Paiement-Facture par IA</h1>
-  <p>Systeme intelligent de matching automatique pour le factoring — Architecture 6 couches</p>
-  <div class="subtitle">
-    <span>{data['n_debtors']} debiteurs</span>
-    <span>{data['n_invoices']} factures</span>
-    <span>{data['n_payments']} paiements</span>
-    <span>12 mois (2024)</span>
-    <span>74 tests</span>
+  <h1>Reconciliation Paiement-Facture</h1>
+  <div class="sub">Systeme de matching automatique par intelligence artificielle pour le factoring</div>
+  <div class="tags">
+    <span class="tag">Architecture 6 couches</span>
+    <span class="tag">{data['n_debtors']} debiteurs</span>
+    <span class="tag">{data['n_invoices']} factures</span>
+    <span class="tag">{data['n_payments']} paiements</span>
+    <span class="tag">12 mois — 2024</span>
+    <span class="tag">74 tests unitaires</span>
   </div>
 </div>
 </div>
@@ -645,106 +710,108 @@ html = f"""<!DOCTYPE html>
 <div class="container">
 
 <!-- KPIs -->
-<div class="kpis">
-  <div class="kpi highlight">
+<div id="kpis" class="kpis">
+  <div class="kpi primary">
     <div class="value">{auto_pct:.1f}%</div>
     <div class="label">Taux d'automatisation</div>
+    <div class="sub-val">{auto} / {total} paiements</div>
   </div>
-  <div class="kpi">
-    <div class="value">{total:,}</div>
+  <div class="kpi success">
+    <div class="value" style="color:var(--green)">{total:,}</div>
     <div class="label">Paiements traites</div>
+    <div class="sub-val">0 erreurs pipeline</div>
   </div>
-  <div class="kpi">
-    <div class="value">{total_eur/1e6:.1f}M</div>
-    <div class="label">Volume (EUR)</div>
+  <div class="kpi warning">
+    <div class="value" style="color:var(--yellow)">{total_eur/1e6:.1f}M EUR</div>
+    <div class="label">Volume total</div>
+    <div class="sub-val">{data['n_invoices']} factures ouvertes</div>
   </div>
-  <div class="kpi">
-    <div class="value">{m.avg_processing_time_ms:.1f}ms</div>
-    <div class="label">Temps moyen/paiement</div>
+  <div class="kpi danger">
+    <div class="value" style="color:var(--red)">{review_pct:.1f}%</div>
+    <div class="label">Revue humaine</div>
+    <div class="sub-val">{review} paiements en file</div>
   </div>
 </div>
 
 <!-- PIPELINE -->
-<h2>Architecture du Pipeline</h2>
+<h2 id="pipeline">Architecture du Pipeline</h2>
 <div class="pipeline">
-  <div class="pipe-box" style="background:#1e293b"><div class="layer">ENTREE</div><div class="name">Paiement</div></div>
-  <div class="pipe-arrow">→</div>
-  <div class="pipe-box" style="background:var(--purple)"><div class="layer">C0</div><div class="name">Normalisation</div><div class="sub">14 transforms</div></div>
-  <div class="pipe-arrow">→</div>
-  <div class="pipe-box" style="background:var(--green)"><div class="layer">C1</div><div class="name">Exact Match</div><div class="sub">97-100%</div></div>
-  <div class="pipe-arrow">→</div>
-  <div class="pipe-box" style="background:var(--yellow)"><div class="layer">C2</div><div class="name">Regles Metier</div><div class="sub">85-99%</div></div>
-  <div class="pipe-arrow">→</div>
-  <div class="pipe-box" style="background:var(--cyan)"><div class="layer">C3</div><div class="name">NLP / Fuzzy</div><div class="sub">75-92%</div></div>
-  <div class="pipe-arrow">→</div>
-  <div class="pipe-box" style="background:#8b5cf6"><div class="layer">C4</div><div class="name">ML Ensemble</div><div class="sub">80-95%</div></div>
-  <div class="pipe-arrow">→</div>
-  <div class="pipe-box" style="background:#ec4899"><div class="layer">C5</div><div class="name">LLM / IA Gen.</div><div class="sub">Variable</div></div>
-  <div class="pipe-arrow">→</div>
-  <div class="pipe-box" style="background:var(--red)"><div class="layer">C6</div><div class="name">Revue Humaine</div><div class="sub">File priorisee</div></div>
+  <div class="pipe" style="background:#0f172a"><div class="lbl">Entree</div><div class="nm">Paiement</div></div>
+  <div class="arrow">&#10132;</div>
+  <div class="pipe" style="background:var(--purple)"><div class="lbl">C0</div><div class="nm">Normalisation</div><div class="conf">14 transforms</div></div>
+  <div class="arrow">&#10132;</div>
+  <div class="pipe" style="background:var(--green)"><div class="lbl">C1</div><div class="nm">Exact Match</div><div class="conf">97-100%</div></div>
+  <div class="arrow">&#10132;</div>
+  <div class="pipe" style="background:var(--yellow);color:#1c1917"><div class="lbl">C2</div><div class="nm">Regles Metier</div><div class="conf">85-99%</div></div>
+  <div class="arrow">&#10132;</div>
+  <div class="pipe" style="background:var(--cyan)"><div class="lbl">C3</div><div class="nm">NLP / Fuzzy</div><div class="conf">75-92%</div></div>
+  <div class="arrow">&#10132;</div>
+  <div class="pipe" style="background:var(--purple)"><div class="lbl">C4</div><div class="nm">ML Ensemble</div><div class="conf">42 features</div></div>
+  <div class="arrow">&#10132;</div>
+  <div class="pipe" style="background:var(--pink)"><div class="lbl">C5</div><div class="nm">LLM / IA Gen.</div><div class="conf">Claude / GPT</div></div>
+  <div class="arrow">&#10132;</div>
+  <div class="pipe" style="background:var(--red)"><div class="lbl">C6</div><div class="nm">Revue Humaine</div><div class="conf">File priorisee</div></div>
 </div>
 <div class="info">
-  <b>Principe d'early-exit :</b> des qu'une couche trouve un match avec confiance ≥ 90%,
+  <div><b>Principe d'early-exit :</b> des qu'une couche trouve un match avec confiance &#8805; 90%,
   le paiement est cloture instantanement. Les couches suivantes ne sont pas executees.
-  C1 traite ~46% des paiements en moins de 2ms.
+  Resultat : temps moyen de <b>{m.avg_processing_time_ms:.1f} ms</b> par paiement.</div>
 </div>
 
 <!-- CHARTS -->
-<h2>Resultats de la Simulation</h2>
-<div class="charts-2">
-  <div class="chart-box">{pie_html}</div>
-  <div class="chart-box">{monthly_html}</div>
+<h2 id="charts">Resultats de la Simulation</h2>
+<div class="grid-2">
+  <div class="card">{pie_html}</div>
+  <div class="card">{monthly_html}</div>
+</div>
+<div class="grid-2">
+  <div class="card">{methods_html}</div>
+  <div class="card">{conf_html}</div>
 </div>
 
-<div class="charts-2">
-  <div class="chart-box">{methods_html}</div>
-  <div class="chart-box">{conf_html}</div>
+<!-- DEBTORS -->
+<h2 id="debtors">Analyse par Debiteur</h2>
+<div class="card" style="margin-bottom:20px">{debtor_html}</div>
+<div class="grid-2">
+  <div class="card">{country_html}</div>
+  <div class="card">{heat_html}</div>
 </div>
 
-<!-- DEBTOR ANALYSIS -->
-<h2 class="section">Analyse par Debiteur</h2>
-<div class="chart-box">
-  {debtor_html}
-</div>
-
-<div class="charts-2" style="margin-top:20px">
-  <div class="chart-box">{country_html}</div>
-  <div class="chart-box">{heat_html}</div>
-</div>
-
-<h3 style="margin-top:1.5rem">Tableau detaille</h3>
-<div class="table-scroll" style="max-height:400px">
+<div class="tbl-wrap" style="margin-top:20px; max-height:420px; overflow-y:auto;">
 <table>
-<tr><th>Debiteur</th><th>Pays</th><th>Total</th><th>Auto</th><th>Revue</th><th>Taux</th><th>Montant EUR</th></tr>
-{debtor_table}
+<thead><tr><th>Debiteur</th><th>Pays</th><th>Total</th><th>Auto</th><th>Revue</th><th>Taux</th><th>Montant EUR</th></tr></thead>
+<tbody>{debtor_table}</tbody>
 </table>
 </div>
 
-<!-- DEEP DIVE — 3 exemples -->
-<h2 class="section">Deep Dive — 3 exemples representatifs</h2>
-<p style="color:var(--slate); margin-bottom:1rem">Parcours complet de paiements a travers le pipeline couche par couche.</p>
+<!-- DEEP DIVE -->
+<h2 id="deep">Deep Dive — Parcours dans le pipeline</h2>
+<p style="color:var(--slate); margin-bottom:1rem; font-size:0.9rem;">
+  Chaque paiement traverse les couches C0 &#8594; C6. Voici 3 exemples representatifs
+  montrant le parcours complet avec les timings.</p>
 {deep_html}
 
-<!-- CATALOGUE COMPLET -->
-<h2 class="section">Catalogue Complet — Tous les {total} paiements par methode</h2>
-<p style="color:var(--slate); margin-bottom:0.5rem">
-  Chaque section explique la logique de matching. Pour les paiements <b>Revue Humaine</b>,
-  une colonne <b>recommandation</b> affiche les 5 meilleures factures candidates triees par score de proximite.
+<!-- CATALOGUE -->
+<h2 id="catalogue">Catalogue Complet — {total} paiements</h2>
+<p style="color:var(--slate); margin-bottom:0.8rem; font-size:0.9rem;">
+  Tous les paiements groupes par methode de matching. Pour les paiements <b>Revue Humaine</b>,
+  la colonne <b style="color:var(--indigo)">Recommandations</b> affiche les 5 meilleures factures candidates
+  triees par score de proximite (montant, debiteur, echeance).
 </p>
-<div style="margin-bottom:1rem">
-  <button onclick="document.querySelectorAll('.method-group').forEach(e=>e.classList.add('open'))"
-          style="padding:6px 16px; border:1px solid #e2e8f0; border-radius:6px; cursor:pointer; font-size:0.85rem; background:white;">
-    Tout ouvrir</button>
-  <button onclick="document.querySelectorAll('.method-group').forEach(e=>e.classList.remove('open'))"
-          style="padding:6px 16px; border:1px solid #e2e8f0; border-radius:6px; cursor:pointer; font-size:0.85rem; background:white; margin-left:6px;">
-    Tout fermer</button>
+<div class="btn-group">
+  <button class="btn" onclick="document.querySelectorAll('.method-group').forEach(e=>e.classList.add('open'))">
+    &#9660; Tout ouvrir</button>
+  <button class="btn" onclick="document.querySelectorAll('.method-group').forEach(e=>e.classList.remove('open'))">
+    &#9650; Tout fermer</button>
 </div>
 {catalogue_html}
 
 <!-- FOOTER -->
-<div style="margin-top:3rem; padding:2rem 0; border-top:1px solid #e2e8f0; text-align:center; color:var(--slate); font-size:0.85rem;">
-  <p><b>Reconciliation IA Paiement-Facture</b> — Architecture 6 couches</p>
-  <p>Factoring & Finance Receivables | {data['n_invoices']} factures | {data['n_payments']} paiements | 74 tests</p>
+<div class="footer">
+  <p style="font-weight:700; font-size:1rem; margin-bottom:4px;">Reconciliation IA Paiement-Facture</p>
+  <p>Architecture 6 couches &bull; Factoring & Finance Receivables</p>
+  <p>{data['n_invoices']} factures &bull; {data['n_payments']} paiements &bull;
+     {data['n_debtors']} debiteurs &bull; 74 tests</p>
 </div>
 
 </div>
