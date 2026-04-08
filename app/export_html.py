@@ -354,7 +354,17 @@ for method_name in method_order:
         catalogue_html += """<th style="min-width:320px">Top 5 recommandations (tri par score)</th>
           </tr>"""
 
+    MAX_PER_METHOD = 50
+    shown = 0
     for _, r in group.iterrows():
+        shown += 1
+        if shown > MAX_PER_METHOD:
+            if shown == MAX_PER_METHOD + 1:
+                remaining = count - MAX_PER_METHOD
+                catalogue_html += f"""<tr><td colspan="{'9' if is_human_review else '8'}"
+                    style="text-align:center; padding:12px; color:var(--slate); font-style:italic;">
+                    ... et {remaining} paiements supplementaires (non affiches pour lisibilite)</td></tr>"""
+            continue
         conf_str = f"{r['confidence']:.0%}" if r["confidence"] > 0 else "—"
         label_esc = (r["label"] if r["label"] else "(vide)").replace("<","&lt;").replace(">","&gt;")
         inv_str = r["invoices_matched"] if r["invoices_matched"] else "—"
