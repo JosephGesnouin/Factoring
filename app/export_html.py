@@ -144,7 +144,7 @@ fig_heat = px.imshow(cross, color_continuous_scale=["#f8fafc","#1e40af"],
 fig_heat.update_layout(height=500, margin=dict(t=40, b=20),
                        title_text="Matrice debiteur x couche", title_x=0.5)
 
-# 8. Deep dive examples
+# 8. Deep dive examples — one per method type
 examples = []
 for label_filter, title in [
     ("C1", "Exemple C1 — Match exact"),
@@ -160,6 +160,142 @@ for label_filter, title in [
                 ctx = r
                 break
         examples.append({"row": row, "ctx": ctx, "title": title})
+
+# ── Explanations by method ──
+METHOD_EXPLANATIONS = {
+    "C1_IBAN_AMOUNT": (
+        "Match IBAN + Montant Unique",
+        "Le debiteur est identifie par son IBAN. Il n'existe qu'une seule facture ouverte "
+        "de ce montant exact pour ce debiteur → le rapprochement est certain sans meme "
+        "avoir besoin de reference dans le libelle."
+    ),
+    "C1_EXACT_REF": (
+        "Reference Exacte + Montant",
+        "Le libelle contient une reference de facture qui correspond exactement a une facture "
+        "ouverte. Le montant est aussi exact. C'est le cas le plus simple et le plus fiable."
+    ),
+    "C1_EXACT_REF_HT": (
+        "Reference Exacte + Montant HT (erreur TVA)",
+        "La reference est correcte, mais le debiteur a paye le montant HT au lieu du TTC. "
+        "Erreur frequente quand le debiteur confond la base taxable et le montant final."
+    ),
+    "C1_ISO20022": (
+        "Reference Structuree ISO 20022 (SEPA)",
+        "Le virement SEPA contient des champs structures (/ROC/, EndToEndId) qui portent "
+        "directement la reference facture. Priorite absolue — pas besoin d'analyser le libelle."
+    ),
+    "C1_FULL_BALANCE": (
+        "Solde Total Debiteur",
+        "Le montant du paiement correspond exactement a la somme de TOUTES les factures "
+        "ouvertes du debiteur. Cas frequent en fin de mois ou apres une relance globale."
+    ),
+    "C1_FULL_BALANCE_NET_CREDITS": (
+        "Solde Total Net (avoirs deduits)",
+        "Comme le solde total, mais le debiteur a deduit les avoirs en cours. "
+        "Montant = total factures - total avoirs."
+    ),
+    "C1_PO_MATCH": (
+        "Match via Bon de Commande (PO)",
+        "Le debiteur reference son numero de commande (PO) au lieu du numero de facture. "
+        "La table PO → Facture permet le rapprochement indirect."
+    ),
+    "C1_BL_MATCH": (
+        "Match via Bon de Livraison (BL)",
+        "Le debiteur reference le numero de livraison (BL/CMR). "
+        "Courant dans le transport et la distribution."
+    ),
+    "C1_HASH_INDEX": (
+        "Hash Index Multi-Format",
+        "La reference extraite ne correspond pas exactement au format stocke, mais "
+        "l'index de hachage multi-format (avec variantes de prefixes et padding) trouve la correspondance."
+    ),
+    "C2_TOLERANCE": (
+        "Tolerance Montant (Regles Metier)",
+        "Le montant differe legerement de la facture. La regle identifie la raison : "
+        "frais SWIFT (-35 EUR max), escompte contractuel, arrondi (+-1 EUR), "
+        "retenue de garantie BTP, retenue a la source (WHT), etc."
+    ),
+    "C2_SUBSET_SUM": (
+        "Multi-Factures (Subset Sum)",
+        "Le paiement correspond a la somme exacte de PLUSIEURS factures. "
+        "Trois algorithmes combines : greedy, exact (brute-force), et two-sum (paires)."
+    ),
+    "C2_CREDIT_NOTE": (
+        "Deduction d'Avoir",
+        "Le debiteur a deduit un avoir (note de credit) du montant de la facture. "
+        "Ex: facture 10 000 EUR - avoir 500 EUR = paiement 9 500 EUR."
+    ),
+    "C2_TEMPORAL": (
+        "Pattern Temporel",
+        "Le libelle mentionne une periode ('FACTURES OCTOBRE 2024') et le montant "
+        "correspond a la somme des factures emises pendant cette periode."
+    ),
+    "C2_INSTALLMENT": (
+        "Acompte / Paiement Partiel",
+        "Le paiement correspond a un pourcentage standard (30%, 50%, 70%) d'une facture. "
+        "Detecte via mots-cles (ACOMPTE, ADVANCE) et ratio paiement/facture."
+    ),
+    "HUMAN_REVIEW": (
+        "Revue Humaine Requise",
+        "Aucune couche automatique n'a pu trouver un rapprochement fiable. "
+        "Raisons possibles : label cryptique, montant ne correspondant a rien, "
+        "debiteur non identifie, combinaison trop complexe."
+    ),
+}
+
+# Build FULL catalogue grouped by method
+print("Building full catalogue...")
+catalogue_html = ""
+
+# Group payments by method
+grouped = df.groupby("method")
+method_order = df.groupby("method").size().sort_values(ascending=False).index.tolist()
+
+for method_name in method_order:
+    group = grouped.get_group(method_name)
+    expl_title, expl_text = METHOD_EXPLANATIONS.get(method_name, (method_name, ""))
+    badge_cls = "c1" if "C1_" in method_name else "c2" if "C2_" in method_name else "c3" if "C3_" in method_name else "c6"
+    count = len(group)
+
+    catalogue_html += f"""
+    <div class="method-group">
+      <div class="method-header" onclick="this.parentElement.classList.toggle('open')">
+        <span class="badge {badge_cls}">{method_name}</span>
+        <span class="method-title">{expl_title}</span>
+        <span class="method-count">{count} paiement{'s' if count>1 else ''}</span>
+        <span class="chevron">▼</span>
+      </div>
+      <div class="method-body">
+        <div class="method-explanation">{expl_text}</div>
+        <table class="cat-table">
+          <tr>
+            <th>ID</th><th>Date</th><th>Montant EUR</th><th>Debiteur</th>
+            <th>Libelle du paiement</th><th>Confiance</th><th>Flags</th>
+            <th>Facture(s) matchee(s)</th>
+          </tr>"""
+
+    for _, r in group.iterrows():
+        conf_str = f"{r['confidence']:.0%}" if r["confidence"] > 0 else "—"
+        label_esc = (r["label"] if r["label"] else "(vide)").replace("<","&lt;").replace(">","&gt;")
+        inv_str = r["invoices_matched"] if r["invoices_matched"] else "—"
+        flags_str = r["flags"] if r["flags"] else ""
+
+        catalogue_html += f"""
+          <tr>
+            <td><code>{r['payment_id']}</code></td>
+            <td>{r['date']}</td>
+            <td class="num">{r['amount']:,.2f}</td>
+            <td>{r['debtor_name'][:22]}</td>
+            <td class="label-cell" title="{label_esc}">{label_esc[:50]}</td>
+            <td class="num">{conf_str}</td>
+            <td class="flags-cell">{flags_str}</td>
+            <td class="inv-cell">{inv_str}</td>
+          </tr>"""
+
+    catalogue_html += """
+        </table>
+      </div>
+    </div>"""
 
 
 # ============================================================
@@ -341,6 +477,34 @@ html = f"""<!DOCTYPE html>
 
   /* Section divider */
   .section {{ margin-top:3rem; }}
+
+  /* Catalogue accordion */
+  .method-group {{ background:white; border-radius:10px; margin:10px 0;
+                   border:1px solid #e2e8f0; overflow:hidden; }}
+  .method-header {{ display:flex; align-items:center; gap:12px; padding:14px 18px;
+                    cursor:pointer; user-select:none; }}
+  .method-header:hover {{ background:#f8fafc; }}
+  .method-title {{ font-weight:600; font-size:1rem; flex:1; }}
+  .method-count {{ color:var(--slate); font-size:0.85rem; }}
+  .chevron {{ color:var(--slate); transition:transform 0.2s; }}
+  .method-group.open .chevron {{ transform:rotate(180deg); }}
+  .method-body {{ display:none; padding:0 18px 18px; }}
+  .method-group.open .method-body {{ display:block; }}
+  .method-explanation {{ background:#eff6ff; border-left:4px solid var(--indigo);
+                         padding:10px 14px; border-radius:0 6px 6px 0;
+                         margin-bottom:12px; font-size:0.9rem; color:#1e40af; }}
+  .cat-table {{ width:100%; border-collapse:collapse; font-size:0.8rem; }}
+  .cat-table th {{ background:#f1f5f9; padding:8px 6px; text-align:left;
+                   font-weight:600; font-size:0.75rem; border-bottom:2px solid #e2e8f0;
+                   position:sticky; top:0; }}
+  .cat-table td {{ padding:6px; border-bottom:1px solid #f1f5f9; vertical-align:top; }}
+  .cat-table tr:hover {{ background:#fefce8; }}
+  .cat-table .label-cell {{ font-family:'Courier New',monospace; font-size:0.75rem;
+                            color:#475569; max-width:300px; word-break:break-all; }}
+  .cat-table .inv-cell {{ font-family:monospace; font-size:0.73rem; color:var(--green);
+                          max-width:200px; word-break:break-all; }}
+  .cat-table .flags-cell {{ font-size:0.73rem; color:var(--yellow); font-weight:600; }}
+
   @media(max-width:768px) {{ .kpis {{ grid-template-columns:repeat(2,1fr); }}
     .charts-2 {{ grid-template-columns:1fr; }} }}
 </style>
@@ -440,20 +604,18 @@ html = f"""<!DOCTYPE html>
 </table>
 </div>
 
-<!-- DEEP DIVE -->
-<h2 class="section">Deep Dive — Exemples de paiements</h2>
-<p style="color:var(--slate); margin-bottom:1rem">Parcours complet de 3 paiements representatifs a travers le pipeline.</p>
+<!-- DEEP DIVE — 3 exemples -->
+<h2 class="section">Deep Dive — 3 exemples representatifs</h2>
+<p style="color:var(--slate); margin-bottom:1rem">Parcours complet de paiements a travers le pipeline couche par couche.</p>
 {deep_html}
 
-<!-- PAYMENT TABLE -->
-<h2 class="section">Table des Paiements (extrait)</h2>
-<div class="table-scroll">
-<table>
-<tr><th>ID</th><th>Date</th><th>Montant EUR</th><th>Debiteur</th><th>Libelle</th>
-<th>Couche</th><th>Methode</th><th>Confiance</th><th>Flags</th></tr>
-{table_rows}
-</table>
-</div>
+<!-- CATALOGUE COMPLET -->
+<h2 class="section">Catalogue Complet — Tous les {total} paiements par methode</h2>
+<p style="color:var(--slate); margin-bottom:1rem">
+  Cliquez sur une methode pour derouler tous les paiements avec leur contenu complet.
+  Chaque section explique la logique de matching et montre le libelle, montant, facture(s) matchee(s) et flags.
+</p>
+{catalogue_html}
 
 <!-- FOOTER -->
 <div style="margin-top:3rem; padding:2rem 0; border-top:1px solid #e2e8f0; text-align:center; color:var(--slate); font-size:0.85rem;">
