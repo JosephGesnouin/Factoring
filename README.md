@@ -191,7 +191,9 @@ Factoring/
 │   ├── orchestrator.py       # Pipeline end-to-end
 │   └── mlops.py              # MLOps, monitoring, retraining
 ├── examples/
-│   └── demo_simulation.py    # Simulation 20 scenarios
+│   ├── demo_simulation.py          # Demo 20 scenarios didactiques
+│   ├── demo_large_simulation.py    # 12 debiteurs, 500 factures, 6 mois
+│   └── demo_stress_test.py         # 20-50 debiteurs, 2000+ factures, 40+ pays
 ├── tests/                    # 74 tests
 │   ├── test_c0_preprocessing.py
 │   ├── test_c1_exact_matching.py
