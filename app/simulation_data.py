@@ -191,6 +191,7 @@ def generate_all(seed=42, months=range(1,13)):
     pay_seq = 0
     consumed = set()
     cn_used = set()
+    ground_truth = {}  # payment_id -> intended invoice reference (for C6 payments)
     inv_by_d = defaultdict(list)
     for inv in invoices:
         inv_by_d[inv.debtor_id].append(inv)
@@ -323,6 +324,7 @@ def generate_all(seed=42, months=range(1,13)):
                 label = tmpl.format(n=rng.randint(1000,9999))
                 amt = inv.amount if rng.random() < 0.3 else round(rng.uniform(500,50000),2)
                 payments.append(mkp(amt, label, []))
+                ground_truth[pid] = inv.reference  # track the intended invoice
                 if rng.random() < 0.3: consumed.add(inv.id)
                 idx += 1
             else:
@@ -417,4 +419,5 @@ def generate_all(seed=42, months=range(1,13)):
         "n_payments": len(payments),
         "n_debtors": len(debtors),
         "credit_notes": credit_notes,
+        "ground_truth": ground_truth,
     }

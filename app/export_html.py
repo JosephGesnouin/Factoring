@@ -249,7 +249,8 @@ inv_by_debtor = defaultdict(list)
 for inv in data["invoices"]:
     inv_by_debtor[inv.debtor_id].append(inv)
 
-recommendations = {}  # payment_id -> list of {ref, amount, score, reason}
+ground_truth = data.get("ground_truth", {})  # payment_id -> true invoice ref
+recommendations = {}  # payment_id -> list of {ref, amount, score, reason, is_true}
 
 human_review_df = df[df["method"] == "HUMAN_REVIEW"]
 for _, r in human_review_df.iterrows():
@@ -296,11 +297,13 @@ for _, r in human_review_df.iterrows():
             score += 0.15; reasons.append("montant HT")
 
         if score > 0.10:
+            true_ref = ground_truth.get(pay_id, "")
             candidates.append({
                 "ref": inv.reference,
                 "amount": inv.amount,
                 "score": min(score, 1.0),
                 "reason": " | ".join(reasons[:3]),
+                "is_true": inv.reference == true_ref,
             })
 
     candidates.sort(key=lambda x: -x["score"])
@@ -370,18 +373,23 @@ for method_name in method_order:
 
         if is_human_review:
             recs = recommendations.get(r["payment_id"], [])
+            true_ref = ground_truth.get(r["payment_id"], "")
             if recs:
                 rec_html = '<div class="reco-list">'
                 for rank, rec in enumerate(recs[:5], 1):
                     bar_w = int(rec["score"] * 100)
+                    is_correct = rec.get("is_true", False)
+                    item_cls = "reco-item reco-correct" if is_correct else "reco-item"
+                    check = ' <span class="reco-check">&#10003; VRAIE FACTURE</span>' if is_correct else ""
+                    bar_cls = "reco-fill reco-fill-correct" if is_correct else "reco-fill"
                     rec_html += (
-                        f'<div class="reco-item">'
+                        f'<div class="{item_cls}">'
                         f'<span class="reco-rank">#{rank}</span>'
                         f'<span class="reco-ref">{rec["ref"]}</span>'
                         f'<span class="reco-amt">{rec["amount"]:,.2f}</span>'
-                        f'<span class="reco-bar"><span class="reco-fill" style="width:{bar_w}%"></span></span>'
+                        f'<span class="reco-bar"><span class="{bar_cls}" style="width:{bar_w}%"></span></span>'
                         f'<span class="reco-score">{rec["score"]:.0%}</span>'
-                        f'<span class="reco-reason">{rec["reason"]}</span>'
+                        f'<span class="reco-reason">{rec["reason"]}{check}</span>'
                         f'</div>'
                     )
                 rec_html += '</div>'
@@ -648,7 +656,15 @@ html = f"""<!DOCTYPE html>
   .reco-item {{ display:grid; grid-template-columns:24px 1fr 78px 55px 38px;
                 gap:6px; align-items:center; font-size:0.73rem; padding:5px 8px;
                 background:var(--slate-100); border-radius:6px; border:1px solid var(--slate-200); }}
-  .reco-item:first-child {{ background:#ecfdf5; border-color:#a7f3d0; }}
+  .reco-item:first-child {{ background:#f0f9ff; border-color:#93c5fd; }}
+  .reco-item.reco-correct {{ background:#ecfdf5 !important; border:2px solid var(--green) !important;
+                             box-shadow:0 0 0 1px rgba(16,185,129,0.2); }}
+  .reco-correct .reco-ref {{ color:var(--green-dark) !important; font-weight:700; }}
+  .reco-correct .reco-score {{ color:var(--green-dark) !important; }}
+  .reco-check {{ display:inline-block; background:var(--green); color:white; font-size:0.62rem;
+                 padding:1px 7px; border-radius:4px; font-weight:700; margin-left:6px;
+                 font-style:normal; letter-spacing:0.03em; }}
+  .reco-fill-correct {{ background:linear-gradient(90deg, var(--green), #34d399) !important; }}
   .reco-rank {{ font-weight:800; color:var(--indigo); font-size:0.8rem; }}
   .reco-ref {{ font-family:monospace; font-size:0.7rem; color:var(--slate-800);
                overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }}
