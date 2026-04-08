@@ -85,10 +85,14 @@ AMOUNT_RANGES = {
     "AGRI":         (2_000, 30_000),
 }
 
-COUNTRIES_SEPA = ["FR", "DE", "IT", "ES", "BE", "NL", "PT", "SE", "PL", "CZ", "HU", "RO"]
-COUNTRIES_NON_SEPA = ["MA", "TN", "TR", "US", "BR", "CH", "GB"]
+COUNTRIES_SEPA = ["FR", "DE", "IT", "ES", "BE", "NL", "PT", "SE", "PL", "CZ", "HU", "RO", "AT", "FI", "DK", "IE", "LU", "SK", "SI", "LT", "LV", "EE", "HR", "BG", "GR", "CY", "MT"]
+COUNTRIES_NON_SEPA = ["MA", "TN", "TR", "US", "BR", "CH", "GB", "DZ", "EG", "SN", "CI", "CM", "IN", "CN", "JP", "KR", "AE", "SA", "MX", "CO", "CL", "AU", "ZA", "NG", "IL"]
 
+# ---------------------------------------------------------------------------
+# Libellés cryptiques / ambigus par langue — vrais verbatims bancaires
+# ---------------------------------------------------------------------------
 CRYPTIC_TEMPLATES = [
+    # FR — trésorerie, comptabilité interne
     "XJ7 TRANSAC {n}", "REF INT {n}", "OP {n} VIR",
     "TRESORERIE MVMT {n}", "{n}", "BANQUE OP{n}",
     "TX{n}ZZ", "CASH MGMT {n}", "VIRT {n}",
@@ -97,9 +101,74 @@ CRYPTIC_TEMPLATES = [
     "CREDIT COMPTE", "REMISE CHEQUES", "ENCAISSEMENT DIVERS",
     "REGUL COMPTA {n}", "ORD PERM {n}", "PRELEVEMENT {n}",
     "VERSEMENT {n}", "COMPENSATION {n}", "CLEARING {n}",
+    "CENTRALISATION TRESORERIE", "NIVELLEMENT INTER-SOCIETES",
+    "RAPATRIEMENT FONDS {n}", "DOTATION COMPTE {n}",
+    "MOUVEMENT INTERNE REF {n}", "REGULARISATION ECART",
+    # EN — treasury, corporate
+    "TREASURY TRANSFER {n}", "INTERCO PAYMENT {n}",
+    "WIRE TRANSFER {n}", "ACH PAYMENT {n}",
+    "CORPORATE SWEEP {n}", "CASH CONCENTRATION {n}",
+    "BALANCE TRANSFER", "NOSTRO CREDIT {n}",
+    "FX SETTLEMENT {n}", "TRADE PAYMENT {n}",
+    "SUPPLIER PMT {n}", "PAYROLL SWEEP {n}",
+    "BANK CHARGES REVERSAL", "CREDIT ADJUSTMENT {n}",
+    "MISC CREDIT {n}", "RETURN ITEM {n}",
+    "CHAPS PAYMENT {n}", "FASTER PAYMENT {n}",
+    "BACS CREDIT {n}", "SWIFT TRANSFER {n}",
+    # DE — Zahlungsverkehr
+    "SAMMELÜBERWEISUNG {n}", "DAUERAUFTRAG {n}",
+    "GUTSCHRIFT {n}", "ZAHLUNGSEINGANG {n}",
+    "ÜBERWEISUNG INLAND {n}", "KONTOAUSGLEICH {n}",
+    "VERRECHNUNGSKONTO {n}", "KONZERNCLEARING {n}",
+    "INTERNE UMBUCHUNG {n}", "RECHNUNGSAUSGLEICH",
+    "ZAHLUNG DIVERSE", "BANKEINZUG {n}",
+    # NL — betalingsverkeer
+    "BETALING ONTVANGEN {n}", "OVERBOEKING {n}",
+    "INCASSO {n}", "SPOEDBETALING {n}",
+    "SALARISBETALING {n}", "INTERNE BOEKING {n}",
+    "CREDITERING {n}", "VERREKENING FACTUREN",
+    # ES — pagos
+    "TRANSFERENCIA RECIBIDA {n}", "PAGO PROVEEDOR {n}",
+    "ABONO EN CUENTA {n}", "LIQUIDACION {n}",
+    "COBRO FACTURA", "INGRESO CHEQUE {n}",
+    "TRASPASO INTERNO {n}", "COMPENSACION {n}",
+    "RECIBO DOMICILIADO {n}", "GIRO COMERCIAL {n}",
+    # IT — pagamenti
+    "BONIFICO RICEVUTO {n}", "PAGAMENTO FORNITORE {n}",
+    "ACCREDITO {n}", "INCASSO EFFETTI {n}",
+    "GIROCONTO INTERNO {n}", "VERSAMENTO {n}",
+    "COMPENSAZIONE {n}", "ADDEBITO DIRETTO {n}",
+    # PT — pagamentos
+    "TRANSFERÊNCIA RECEBIDA {n}", "PAGAMENTO FORNECEDOR {n}",
+    "CRÉDITO EM CONTA {n}", "LIQUIDAÇÃO {n}",
+    # AR (Maghreb) — paiements
+    "TAHWIL {n}", "DAFA {n}",
+    "HAW BANK {n}", "PAYMENT ORDER {n} SWIFT",
+    "MUQASSA {n}", "CREDIT TRANSFER OUR {n}",
+    # TR — ödeme
+    "HAVALE GELEN {n}", "EFT ALINDI {n}",
+    "ODEME {n}", "TAHSILAT {n}",
+    "VIRMAN {n}", "FATURA ODEMESI {n}",
+    # PL/CZ/HU — CEE
+    "PRZELEW PRZYCHODZACY {n}", "PLATBA PRIJATA {n}",
+    "ÁTUTALÁS {n}", "WPŁATA {n}",
+    "INKASO {n}", "ELSZÁMOLÁS {n}",
+    # JP/CN/KR — Asie
+    "送金受領 {n}", "收到汇款 {n}",
+    "입금확인 {n}", "TELEGRAPHIC TRANSFER {n}",
+    "REMITTANCE ADVICE {n}", "T/T RECEIVED {n}",
+    # Divers — codes internes bancaires
+    "MSG{n}PROC", "CLR{n}NET", "SETL{n}FIN",
+    "REF//{n}//CRED", "NONREF", "/BNF/{n}",
+    "NTRF {n}", "RNCN{n}", "BENM//NAME NOT PROVIDED",
 ]
 
-WHT_RATES = {"MA": 0.20, "TN": 0.15, "TR": 0.18, "BR": 0.15, "DZ": 0.24}
+WHT_RATES = {
+    "MA": 0.20, "TN": 0.15, "TR": 0.18, "BR": 0.15, "DZ": 0.24,
+    "EG": 0.20, "IN": 0.10, "SN": 0.20, "CI": 0.20, "CM": 0.15,
+    "SA": 0.05, "AE": 0.0, "NG": 0.10, "ZA": 0.15, "IL": 0.25,
+    "MX": 0.10, "CO": 0.10, "CL": 0.15,
+}
 
 # Scénarios et leurs poids typiques par "archétype" de débiteur
 ARCHETYPES = {
@@ -144,6 +213,36 @@ ARCHETYPES = {
         "C2_TEMPORAL": 0.35, "C1_EXACT_REF": 0.15, "C2_SUBSET_SUM": 0.15,
         "C1_FULL_BALANCE": 0.10, "C2_ROUNDING": 0.10, "C6_CRYPTIC": 0.15,
     },
+    # Nouveaux archétypes pour plus de diversité
+    "chaotique": {
+        "C6_CRYPTIC": 0.50, "C3_FUZZY": 0.20, "C1_EXACT_REF": 0.10,
+        "C2_ROUNDING": 0.10, "C2_SUBSET_SUM": 0.10,
+    },
+    "grand_compte": {
+        "C1_ISO20022": 0.30, "C2_DISCOUNT": 0.15, "C2_CREDIT_NOTE": 0.10,
+        "C2_SUBSET_SUM": 0.20, "C1_FULL_BALANCE": 0.10,
+        "C2_RFA": 0.05, "C6_CRYPTIC": 0.10,
+    },
+    "pme_rigoureux": {
+        "C1_EXACT_REF": 0.65, "C2_ROUNDING": 0.10, "C1_IBAN_AMOUNT": 0.10,
+        "C6_CRYPTIC": 0.05, "C3_FUZZY": 0.10,
+    },
+    "africain_mix": {
+        "C2_SWIFT_FEES": 0.25, "C2_WHT": 0.20, "C6_CRYPTIC": 0.25,
+        "C1_EXACT_REF": 0.15, "C2_ROUNDING": 0.05, "C3_FUZZY": 0.10,
+    },
+    "asiatique": {
+        "C1_EXACT_REF": 0.20, "C2_SWIFT_FEES": 0.20, "C6_CRYPTIC": 0.30,
+        "C1_ISO20022": 0.10, "C3_FUZZY": 0.10, "C2_ROUNDING": 0.10,
+    },
+    "americain": {
+        "C1_EXACT_REF": 0.30, "C2_SWIFT_FEES": 0.15, "C1_IBAN_AMOUNT": 0.15,
+        "C2_INSTALLMENT": 0.10, "C6_CRYPTIC": 0.20, "C2_ROUNDING": 0.10,
+    },
+    "scandinave": {
+        "C1_ISO20022": 0.40, "C1_EXACT_REF": 0.25, "C2_ROUNDING": 0.10,
+        "C2_SUBSET_SUM": 0.10, "C6_CRYPTIC": 0.15,
+    },
 }
 
 
@@ -165,50 +264,149 @@ class DebtorProfile:
 
 COMPANY_NAMES = {
     "FR": [
-        "Boulangerie Dupont", "Construction Martin", "Groupe Leclerc",
-        "Transport Duval", "Pharma Santé", "Énergie Verte", "Chimie Rhône",
-        "Métaux Loire", "Logistique Express", "Luxe Parisien", "Agri Beauce",
-        "Industries Normandie", "Services Île-de-France", "Tech Lyon",
-        "Distribution Sud", "BTP Atlantique", "Alimentaire Provence",
+        "Boulangerie Dupont", "Construction Martin", "Groupe Leclerc", "Transport Duval",
+        "Pharma Santé", "Énergie Verte", "Chimie Rhône", "Métaux Loire",
+        "Logistique Express", "Luxe Parisien", "Agri Beauce", "Industries Normandie",
+        "Services Île-de-France", "Tech Lyon", "Distribution Sud", "BTP Atlantique",
+        "Alimentaire Provence", "Plastiques Grenoble", "Carrelages Méditerranée",
+        "Vins Bourgogne", "Mobilier Scandinave", "Cablâge Alsace", "Fromageries du Jura",
+        "Imprimerie Toulouse", "Emballages Loire-Atlantique", "Charcuterie Auvergne",
+        "Menuiserie Bretagne", "Pièces Auto Strasbourg", "Laiteries du Nord",
+        "Béton Armé Normandie", "Conserveries Nantaises", "Robinetterie Rhône-Alpes",
     ],
-    "DE": ["Schmidt Import", "Bayern Industrie", "Hamburg Logistics", "Berlin Tech"],
-    "IT": ["Rossi Transport", "Milano Fashion", "Roma Alimentari"],
-    "ES": ["Iberia Foods", "Barcelona Auto", "Madrid Distribución"],
-    "BE": ["Bruxelles Commerce", "Flandres Textiles"],
-    "NL": ["Amsterdam Trading", "Rotterdam Shipping"],
-    "SE": ["Nordic Pharma", "Stockholm Electronics"],
-    "PL": ["Warszawa AutoParts", "Kraków Steel"],
-    "GB": ["London Tech Solutions", "Manchester Industries"],
-    "MA": ["Maroc Export", "Casablanca Trading"],
-    "TN": ["Tunisie Textiles", "Tunis Commerce"],
-    "TR": ["Istanbul Import", "Ankara Metals"],
-    "CH": ["Zürich Precision", "Geneva Trading"],
-    "US": ["New York Imports", "Chicago Distribution"],
-    "PT": ["Lisboa Logistics"],
-    "RO": ["Bucharest Manufacturing"],
-    "CZ": ["Praha Engineering"],
-    "HU": ["Budapest Chemicals"],
+    "DE": [
+        "Schmidt Import", "Bayern Industrie", "Hamburg Logistics", "Berlin Tech",
+        "Frankfurter Maschinenbau", "Dresden Elektronik", "Nürnberger Werkzeuge",
+        "Stuttgarter Chemie", "Kölner Verpackung", "Hannover Stahl", "Düsseldorf Textil",
+        "München Lebensmittel", "Leipzig Kunststoff", "Bremerhaven Shipping",
+    ],
+    "IT": [
+        "Rossi Transport", "Milano Fashion", "Roma Alimentari", "Napoli Conserve",
+        "Torino Meccanica", "Firenze Pelletteria", "Bologna Packaging",
+        "Verona Marmi", "Padova Farmaceutica", "Genova Shipping", "Bergamo Tessuti",
+    ],
+    "ES": [
+        "Iberia Foods", "Barcelona Auto", "Madrid Distribución", "Valencia Cerámica",
+        "Sevilla Aceites", "Bilbao Aceros", "Zaragoza Textil", "Málaga Frutas",
+        "Alicante Calzados", "Murcia Conservas", "Vigo Pesca", "Cádiz Naviera",
+    ],
+    "BE": ["Bruxelles Commerce", "Flandres Textiles", "Anvers Diamant", "Liège Sidérurgie",
+           "Gand Chimie", "Charleroi Métallurgie", "Bruges Chocolaterie"],
+    "NL": ["Amsterdam Trading", "Rotterdam Shipping", "Eindhoven Tech", "Utrecht Pharma",
+           "Den Haag Consulting", "Groningen Agri", "Maastricht Céramiques"],
+    "SE": ["Nordic Pharma", "Stockholm Electronics", "Göteborg Volvo Parts",
+           "Malmö Biotech", "Uppsala Instruments", "Linköping Aero"],
+    "PL": ["Warszawa AutoParts", "Kraków Steel", "Gdańsk Shipyard", "Wrocław Electronics",
+           "Łódź Textiles", "Poznań Food Processing", "Katowice Mining Equipment"],
+    "GB": ["London Tech Solutions", "Manchester Industries", "Birmingham Steel",
+           "Liverpool Shipping", "Edinburgh Pharma", "Bristol Aerospace",
+           "Leeds Packaging", "Glasgow Engineering", "Cardiff Energy"],
+    "MA": ["Maroc Export", "Casablanca Trading", "Tanger Med Logistics", "Rabat Textiles",
+           "Fès Artisanat", "Marrakech Agri-Business", "Agadir Conserveries"],
+    "TN": ["Tunisie Textiles", "Tunis Commerce", "Sfax Industries", "Sousse Huileries",
+           "Bizerte Électronique", "Gabès Chimie"],
+    "TR": ["Istanbul Import", "Ankara Metals", "Izmir Tekstil", "Bursa Otomotiv",
+           "Antalya Gıda", "Gaziantep Makine", "Konya Tarım"],
+    "CH": ["Zürich Precision", "Geneva Trading", "Basel Pharma", "Bern Instruments",
+           "Lausanne Horlogerie", "Winterthur Engineering"],
+    "US": ["New York Imports", "Chicago Distribution", "Houston Energy", "Detroit Auto Parts",
+           "Los Angeles Tech", "Miami Trade", "Seattle Aerospace", "Atlanta Logistics",
+           "Boston Biotech", "San Francisco Digital", "Dallas Manufacturing"],
+    "PT": ["Lisboa Logistics", "Porto Wine Export", "Braga Textiles", "Faro Conservas"],
+    "RO": ["Bucharest Manufacturing", "Cluj Engineering", "Timișoara Auto", "Iași Pharma"],
+    "CZ": ["Praha Engineering", "Brno Machinery", "Ostrava Steel", "Plzeň Brewing Equipment"],
+    "HU": ["Budapest Chemicals", "Debrecen Pharma", "Szeged Agri", "Győr Auto"],
+    "AT": ["Wien Maschinenbau", "Graz Elektronik", "Linz Stahl", "Salzburg Tourismus"],
+    "FI": ["Helsinki Electronics", "Tampere Machinery", "Turku Shipbuilding"],
+    "DK": ["København Pharma", "Aarhus Wind Energy", "Odense Robotics"],
+    "IE": ["Dublin Tech", "Cork Pharma", "Galway Biomedical"],
+    "BR": ["São Paulo Trading", "Rio Agronegócio", "Belo Horizonte Mining",
+           "Curitiba Auto Peças", "Porto Alegre Calçados"],
+    "DZ": ["Alger Import", "Oran Industries", "Constantine Commerce"],
+    "EG": ["Cairo Trading", "Alexandria Textiles", "Suez Shipping"],
+    "SN": ["Dakar Commerce", "Saint-Louis Pêche"],
+    "CI": ["Abidjan Trading", "San Pedro Cacao Export"],
+    "CM": ["Douala Export", "Yaoundé Industries"],
+    "IN": ["Mumbai Textiles", "Delhi Auto Parts", "Bangalore Tech", "Chennai Manufacturing"],
+    "CN": ["Shanghai Trading", "Shenzhen Electronics", "Guangzhou Manufacturing",
+           "Beijing Import-Export", "Hangzhou Digital"],
+    "JP": ["Tokyo Electronics", "Osaka Manufacturing", "Nagoya Auto Parts"],
+    "KR": ["Seoul Electronics", "Busan Shipping", "Incheon Trading"],
+    "AE": ["Dubai Trading", "Abu Dhabi Energy", "Sharjah Industries"],
+    "SA": ["Riyadh Trading", "Jeddah Import", "Dammam Petrochemicals"],
+    "MX": ["Ciudad de México Trading", "Monterrey Industries", "Guadalajara Electronics"],
+    "CO": ["Bogotá Trading", "Medellín Textiles"],
+    "CL": ["Santiago Mining", "Valparaíso Trading"],
+    "AU": ["Sydney Trading", "Melbourne Manufacturing", "Perth Mining"],
+    "ZA": ["Johannesburg Mining", "Cape Town Trading", "Durban Shipping"],
+    "NG": ["Lagos Trading", "Abuja Industries"],
+    "IL": ["Tel Aviv Tech", "Haifa Chemicals"],
+    "LU": ["Luxembourg Finance", "Esch-sur-Alzette Steel"],
+    "SK": ["Bratislava Auto", "Košice Steel"],
+    "SI": ["Ljubljana Pharma", "Maribor Manufacturing"],
+    "LT": ["Vilnius Tech", "Kaunas Manufacturing"],
+    "LV": ["Riga Trading", "Liepāja Shipping"],
+    "EE": ["Tallinn Digital", "Tartu Biotech"],
+    "HR": ["Zagreb Industries", "Split Shipping"],
+    "BG": ["Sofia Manufacturing", "Plovdiv Textiles"],
+    "GR": ["Athens Shipping", "Thessaloniki Trading"],
+    "CY": ["Nicosia Trading", "Limassol Shipping"],
+    "MT": ["Valletta Trading", "Malta Pharma"],
 }
 
 LEGAL_SUFFIXES = {
-    "FR": ["SARL", "SA", "SAS", "EURL"],
-    "DE": ["GmbH", "AG", "KG"],
-    "IT": ["Srl", "SpA"],
-    "ES": ["SL", "SA"],
-    "BE": ["SPRL", "SA"],
-    "NL": ["BV", "NV"],
-    "SE": ["AB"],
-    "PL": ["Sp. z o.o.", "SA"],
-    "GB": ["Ltd", "PLC"],
-    "MA": ["SARL", "SA"],
-    "TN": ["SA", "SARL"],
-    "TR": ["A.S.", "Ltd"],
-    "CH": ["AG", "SA"],
-    "US": ["Inc", "LLC", "Corp"],
-    "PT": ["Lda", "SA"],
-    "RO": ["SRL", "SA"],
-    "CZ": ["s.r.o.", "a.s."],
-    "HU": ["Kft", "Zrt"],
+    "FR": ["SARL", "SA", "SAS", "EURL", "SCI", "SNC"],
+    "DE": ["GmbH", "AG", "KG", "GmbH & Co. KG", "e.K."],
+    "IT": ["Srl", "SpA", "Sas", "Snc"],
+    "ES": ["SL", "SA", "SLU", "SAU"],
+    "BE": ["SPRL", "SA", "SRL", "SC"],
+    "NL": ["BV", "NV", "VOF"],
+    "SE": ["AB", "HB"],
+    "PL": ["Sp. z o.o.", "SA", "Sp.k."],
+    "GB": ["Ltd", "PLC", "LLP"],
+    "MA": ["SARL", "SA", "SNC"],
+    "TN": ["SA", "SARL", "SUARL"],
+    "TR": ["A.Ş.", "Ltd. Şti.", "Tic. A.Ş."],
+    "CH": ["AG", "SA", "GmbH", "Sàrl"],
+    "US": ["Inc", "LLC", "Corp", "LP"],
+    "PT": ["Lda", "SA", "Unipessoal Lda"],
+    "RO": ["SRL", "SA", "SCA"],
+    "CZ": ["s.r.o.", "a.s.", "v.o.s."],
+    "HU": ["Kft", "Zrt", "Bt"],
+    "AT": ["GmbH", "AG", "KG"],
+    "FI": ["Oy", "Oyj", "Ky"],
+    "DK": ["A/S", "ApS", "I/S"],
+    "IE": ["Ltd", "PLC", "DAC"],
+    "BR": ["Ltda", "SA", "EIRELI"],
+    "DZ": ["SARL", "SPA", "EURL"],
+    "EG": ["SAE", "LLC"],
+    "SN": ["SARL", "SA"],
+    "CI": ["SARL", "SA"],
+    "CM": ["SARL", "SA"],
+    "IN": ["Pvt Ltd", "Ltd", "LLP"],
+    "CN": ["Co., Ltd", "Trading Co."],
+    "JP": ["K.K.", "Co., Ltd", "株式会社"],
+    "KR": ["Co., Ltd", "Corp"],
+    "AE": ["LLC", "FZ-LLC", "FZCO"],
+    "SA": ["LLC", "Co."],
+    "MX": ["SA de CV", "SAPI"],
+    "CO": ["SAS", "SA", "Ltda"],
+    "CL": ["SpA", "SA", "Ltda"],
+    "AU": ["Pty Ltd", "Ltd"],
+    "ZA": ["Pty Ltd", "Ltd"],
+    "NG": ["Ltd", "PLC"],
+    "IL": ["Ltd", "בע״מ"],
+    "LU": ["SA", "Sàrl", "SCA"],
+    "SK": ["s.r.o.", "a.s."],
+    "SI": ["d.o.o.", "d.d."],
+    "LT": ["UAB", "AB"],
+    "LV": ["SIA", "AS"],
+    "EE": ["OÜ", "AS"],
+    "HR": ["d.o.o.", "d.d."],
+    "BG": ["EOOD", "OOD", "AD"],
+    "GR": ["ΕΠΕ", "ΑΕ", "ΙΚΕ"],
+    "CY": ["Ltd", "PLC"],
+    "MT": ["Ltd", "PLC"],
 }
 
 
@@ -433,8 +631,101 @@ def _pick(weights: dict[str, float], rng: random.Random) -> str:
     return rng.choices(items, weights=probs, k=1)[0]
 
 
-def _ref_label(ref: str, rng: random.Random) -> str:
-    pre = rng.choice(["REGLT","REGLEMENT","PAIEMENT","VIRT","VIREMENT","RGT","PMT","VIR SEPA"])
+# Libellés de paiement localisés par langue du pays d'origine
+LABEL_PREFIXES_BY_LANG = {
+    "FR": [
+        "REGLT", "REGLEMENT", "PAIEMENT", "VIRT", "VIREMENT", "RGT", "PMT",
+        "VIR SEPA", "REGL FACTURE", "PAIEMENT FACTURE", "VIREMENT REF",
+        "REGLEMENT VOTRE FACTURE", "SOLDE FACTURE", "REGL ECHEANCE",
+        "PAIEMENT ECHEANCE", "VIR REGL", "RGT FACTURE", "VIRT SEPA REF",
+        "VIR SCT", "PAIEMENT FOURNISSEUR", "REGLEMENT FOURNISSEUR",
+    ],
+    "EN": [
+        "PAYMENT", "PMT", "PAYMENT FOR INV", "SETTLEMENT", "WIRE TRANSFER",
+        "BANK TRANSFER", "PAYMENT OF INVOICE", "PMT REF", "REMITTANCE",
+        "PAYMENT AS PER INVOICE", "SETTLEMENT OF INVOICE", "TRF",
+        "CREDIT TRANSFER", "PYMT", "PAY", "PAYMENT FOR", "FUNDS TRANSFER",
+        "SUPPLIER PAYMENT", "VENDOR PAYMENT", "TRADE SETTLEMENT",
+    ],
+    "DE": [
+        "ZAHLUNG", "ÜBERWEISUNG", "BEZAHLUNG RECHNUNG", "RECHNUNGSBEGLEICHUNG",
+        "ZAHLUNGSANWEISUNG", "GUTSCHRIFT", "BEGLEICHUNG", "AUSGLEICH RECHNUNG",
+        "ZAHLUNGSAUSGLEICH", "BANKÜBERWEISUNG", "SEPA-ÜBERWEISUNG",
+    ],
+    "NL": [
+        "BETALING", "OVERBOEKING", "BETALING FACTUUR", "VOLDOENING",
+        "BANKOVERSCHRIJVING", "CREDITOVERSCHRIJVING", "BETALING REF",
+        "FACTUUR VOLDAAN", "SEPA OVERBOEKING",
+    ],
+    "ES": [
+        "PAGO", "TRANSFERENCIA", "PAGO FACTURA", "ABONO", "LIQUIDACIÓN",
+        "PAGO A PROVEEDOR", "TRANSFERENCIA REF", "GIRO BANCARIO",
+        "PAGO SEGÚN FACTURA", "ABONO EN CUENTA",
+    ],
+    "IT": [
+        "PAGAMENTO", "BONIFICO", "PAGAMENTO FATTURA", "SALDO FATTURA",
+        "BONIFICO BANCARIO", "PAGAMENTO RIF", "VERSAMENTO",
+        "ACCREDITO", "BONIFICO SEPA", "REGOLAMENTO FATTURA",
+    ],
+    "PT": [
+        "PAGAMENTO", "TRANSFERÊNCIA", "PAGAMENTO FATURA", "LIQUIDAÇÃO",
+        "TRANSFERÊNCIA BANCÁRIA", "PAGAMENTO REF", "CRÉDITO",
+    ],
+    "TR": [
+        "ÖDEME", "HAVALE", "FATURA ÖDEMESI", "BANKA HAVALESI",
+        "EFT ÖDEMESİ", "ÖDEME REF", "VİRMAN",
+    ],
+    "PL": [
+        "PŁATNOŚĆ", "PRZELEW", "ZAPŁATA FAKTURY", "PRZELEW BANKOWY",
+        "WPŁATA", "PRZELEW ZA FAKTURĘ", "PŁATNOŚĆ REF",
+    ],
+    "AR": [
+        "TAHWIL", "DAFA", "TASDID FATOURA", "HAW BANK", "SADDAD",
+    ],
+    "ZH": [
+        "付款", "汇款", "转账", "支付货款", "电汇",
+    ],
+    "JA": [
+        "お支払い", "振込", "送金", "代金支払",
+    ],
+    "KO": [
+        "결제", "송금", "대금지급", "이체",
+    ],
+}
+
+# Pays → langue principale pour les labels
+COUNTRY_LANG = {
+    "FR": "FR", "BE": "FR", "LU": "FR", "MC": "FR", "SN": "FR", "CI": "FR",
+    "CM": "FR", "DZ": "AR", "TN": "AR", "MA": "AR", "EG": "AR",
+    "DE": "DE", "AT": "DE", "CH": "DE",
+    "NL": "NL",
+    "ES": "ES", "MX": "ES", "CO": "ES", "CL": "ES",
+    "IT": "IT",
+    "PT": "PT", "BR": "PT",
+    "TR": "TR",
+    "PL": "PL", "CZ": "PL", "SK": "PL",
+    "HU": "EN", "RO": "EN", "BG": "EN", "HR": "EN", "SI": "EN",
+    "SE": "EN", "DK": "EN", "FI": "EN", "NO": "EN",
+    "GB": "EN", "IE": "EN", "US": "EN", "AU": "EN", "ZA": "EN", "NG": "EN",
+    "IN": "EN", "AE": "EN", "SA": "AR", "IL": "EN",
+    "CN": "ZH", "JP": "JA", "KR": "KO",
+    "GR": "EN", "CY": "EN", "MT": "EN",
+    "LT": "EN", "LV": "EN", "EE": "EN",
+}
+
+
+def _ref_label(ref: str, rng: random.Random, country: str = "FR") -> str:
+    """Génère un libellé de paiement localisé selon le pays du débiteur."""
+    lang = COUNTRY_LANG.get(country, "EN")
+    prefixes = LABEL_PREFIXES_BY_LANG.get(lang, LABEL_PREFIXES_BY_LANG["EN"])
+    pre = rng.choice(prefixes)
+    # Parfois le libellé ajoute du bruit bancaire
+    if rng.random() < 0.15:
+        noise = rng.choice([
+            "/RFB/", "/ROC/", "E2E/", "NOTPROVIDED/", "/BENM/", "//",
+            f"/{rng.randint(100000,999999)}/", f"CRED/{rng.randint(1000,9999)}",
+        ])
+        return f"{noise}{pre} {ref}"
     return f"{pre} {ref}"
 
 
@@ -483,7 +774,7 @@ def generate_payments(
 
             # ── C1_EXACT_REF ──
             if scenario == "C1_EXACT_REF":
-                p = _mkpay(pid, inv.amount, dt, profile, _ref_label(inv.reference, rng), [inv.reference])
+                p = _mkpay(pid, inv.amount, dt, profile, _ref_label(inv.reference, rng, profile.debtor.country or "FR"), [inv.reference])
                 payments.append(p); consumed.add(inv.id); idx += 1
 
             # ── C1_ISO20022 ──
@@ -495,18 +786,51 @@ def generate_payments(
 
             # ── C1_IBAN_AMOUNT ──
             elif scenario == "C1_IBAN_AMOUNT":
-                p = _mkpay(pid, inv.amount, dt, profile, rng.choice(["VIREMENT","REGLEMENT","PAIEMENT"]), [])
+                lang = COUNTRY_LANG.get(profile.debtor.country, "EN")
+                generic_labels = {
+                    "FR": ["VIREMENT","REGLEMENT","PAIEMENT","VIREMENT COMMERCIAL","CREDIT COMPTE"],
+                    "EN": ["WIRE TRANSFER","PAYMENT","BANK TRANSFER","CREDIT","REMITTANCE"],
+                    "DE": ["ÜBERWEISUNG","ZAHLUNG","GUTSCHRIFT","BANKÜBERWEISUNG"],
+                    "NL": ["BETALING","OVERBOEKING","CREDITOVERSCHRIJVING"],
+                    "ES": ["TRANSFERENCIA","PAGO","ABONO EN CUENTA"],
+                    "IT": ["BONIFICO","PAGAMENTO","ACCREDITO"],
+                    "PT": ["TRANSFERÊNCIA","PAGAMENTO","CRÉDITO"],
+                    "TR": ["HAVALE","ÖDEME","EFT"],
+                    "PL": ["PRZELEW","PŁATNOŚĆ","WPŁATA"],
+                    "AR": ["TAHWIL","HAW BANK","CREDIT TRANSFER"],
+                    "ZH": ["汇款","转账","付款"],
+                    "JA": ["振込","送金"],
+                    "KO": ["송금","이체"],
+                }
+                pool = generic_labels.get(lang, generic_labels["EN"])
+                p = _mkpay(pid, inv.amount, dt, profile, rng.choice(pool), [])
                 payments.append(p); consumed.add(inv.id); idx += 1
 
             # ── C1_PO_MATCH ──
             elif scenario == "C1_PO_MATCH" and inv.po_number:
-                label = f"REGLT COMMANDE {inv.po_number}"
-                p = _mkpay(pid, inv.amount, dt, profile, label, [inv.po_number])
+                po_labels = {
+                    "FR": [f"REGLT COMMANDE {inv.po_number}", f"PAIEMENT PO {inv.po_number}", f"VIR CMNDE {inv.po_number}"],
+                    "EN": [f"PAYMENT PO {inv.po_number}", f"PMT ORDER {inv.po_number}", f"SETTLEMENT PO# {inv.po_number}"],
+                    "DE": [f"ZAHLUNG BESTELLUNG {inv.po_number}", f"BESTELLNR {inv.po_number}"],
+                    "ES": [f"PAGO PEDIDO {inv.po_number}", f"ORDEN DE COMPRA {inv.po_number}"],
+                    "IT": [f"PAGAMENTO ORDINE {inv.po_number}", f"ORDINE {inv.po_number}"],
+                }
+                lang = COUNTRY_LANG.get(profile.debtor.country, "EN")
+                pool = po_labels.get(lang, po_labels["EN"])
+                p = _mkpay(pid, inv.amount, dt, profile, rng.choice(pool), [inv.po_number])
                 payments.append(p); consumed.add(inv.id); idx += 1
 
             # ── C1_BL_MATCH ──
             elif scenario == "C1_BL_MATCH" and inv.bl_number:
-                p = _mkpay(pid, inv.amount, dt, profile, f"REGLEMENT {inv.bl_number}", [inv.bl_number])
+                bl_labels = {
+                    "FR": [f"REGLEMENT {inv.bl_number}", f"PAIEMENT LIVRAISON {inv.bl_number}"],
+                    "EN": [f"PMT DELIVERY {inv.bl_number}", f"PAYMENT BOL {inv.bl_number}"],
+                    "DE": [f"ZAHLUNG LIEFERSCHEIN {inv.bl_number}"],
+                    "IT": [f"PAGAMENTO DDT {inv.bl_number}", f"BOLLA {inv.bl_number}"],
+                }
+                lang = COUNTRY_LANG.get(profile.debtor.country, "EN")
+                pool = bl_labels.get(lang, bl_labels["EN"])
+                p = _mkpay(pid, inv.amount, dt, profile, rng.choice(pool), [inv.bl_number])
                 payments.append(p); consumed.add(inv.id); idx += 1
 
             # ── C1_FULL_BALANCE ──
@@ -514,7 +838,16 @@ def generate_payments(
                 rem = [i for i in avail[idx:] if i.id not in consumed][:10]
                 if len(rem) >= 2:
                     total = sum(i.amount for i in rem)
-                    p = _mkpay(pid, total, dt, profile, "SOLDE TOTAL COMPTE", [])
+                    balance_labels = {
+                        "FR": ["SOLDE TOTAL COMPTE","REGLEMENT INTEGRAL","APUREMENT SOLDE","SOLDE DE TOUT COMPTE"],
+                        "EN": ["FULL BALANCE PAYMENT","ACCOUNT SETTLEMENT","CLEARING ALL INVOICES","FULL SETTLEMENT"],
+                        "DE": ["KOMPLETTAUSGLEICH","KONTOAUSGLEICH","SALDENAUSGLEICH"],
+                        "ES": ["PAGO TOTAL PENDIENTE","LIQUIDACIÓN COMPLETA","SALDO TOTAL"],
+                        "IT": ["SALDO TOTALE CONTO","PAGAMENTO INTEGRALE"],
+                    }
+                    lang = COUNTRY_LANG.get(profile.debtor.country, "EN")
+                    pool = balance_labels.get(lang, balance_labels["EN"])
+                    p = _mkpay(pid, total, dt, profile, rng.choice(pool), [])
                     payments.append(p)
                     for i in rem: consumed.add(i.id)
                     idx += len(rem)
@@ -523,28 +856,52 @@ def generate_payments(
             # ── C2_SWIFT_FEES ──
             elif scenario == "C2_SWIFT_FEES":
                 fee = round(rng.uniform(12, 35), 2)
-                p = _mkpay(pid, inv.amount - fee, dt, profile, _ref_label(inv.reference, rng), [inv.reference])
+                p = _mkpay(pid, inv.amount - fee, dt, profile, _ref_label(inv.reference, rng, profile.debtor.country or "FR"), [inv.reference])
                 payments.append(p); consumed.add(inv.id); idx += 1
 
             # ── C2_DISCOUNT ──
             elif scenario == "C2_DISCOUNT" and profile.debtor.discount_rate > 0:
                 rate = profile.debtor.discount_rate
                 amt = round(inv.amount * (1 - rate), 2)
-                p = _mkpay(pid, amt, dt, profile, f"REGLT {inv.reference} ESC {rate*100:.0f}%", [inv.reference])
+                disc_labels = [
+                    f"REGLT {inv.reference} ESC {rate*100:.0f}%",
+                    f"PMT {inv.reference} EARLY DISCOUNT {rate*100:.0f}%",
+                    f"ZAHLUNG {inv.reference} SKONTO {rate*100:.0f}%",
+                    f"PAGO {inv.reference} DESCUENTO {rate*100:.0f}%",
+                    f"PAGAMENTO {inv.reference} SCONTO {rate*100:.0f}%",
+                    f"{inv.reference} ESCOMPTE DEDUIT",
+                    f"PAYMENT {inv.reference} LESS {rate*100:.0f}% DISCOUNT",
+                ]
+                p = _mkpay(pid, amt, dt, profile, rng.choice(disc_labels), [inv.reference])
                 payments.append(p); consumed.add(inv.id); idx += 1
 
             # ── C2_RETENTION ──
             elif scenario == "C2_RETENTION" and profile.debtor.retention_rate > 0:
                 rate = profile.debtor.retention_rate
                 amt = round(inv.amount * (1 - rate), 2)
-                p = _mkpay(pid, amt, dt, profile, f"REGLT {inv.reference} RET {rate*100:.0f}%", [inv.reference])
+                ret_labels = [
+                    f"REGLT {inv.reference} RET {rate*100:.0f}%",
+                    f"REGLT CHANTIER {inv.reference} RETENUE GARANTIE {rate*100:.0f}%",
+                    f"PMT {inv.reference} RETENTION {rate*100:.0f}%",
+                    f"{inv.reference} LESS RETENTION {rate*100:.0f}%",
+                    f"ZAHLUNG {inv.reference} EINBEHALT {rate*100:.0f}%",
+                    f"PAGO {inv.reference} RETENCION GARANTIA",
+                ]
+                p = _mkpay(pid, amt, dt, profile, rng.choice(ret_labels), [inv.reference])
                 payments.append(p); consumed.add(inv.id); idx += 1
 
             # ── C2_RFA ──
             elif scenario == "C2_RFA" and profile.debtor.rfa_rate > 0:
                 rate = profile.debtor.rfa_rate
                 amt = round(inv.amount * (1 - rate), 2)
-                p = _mkpay(pid, amt, dt, profile, f"REGLT {inv.reference} RFA {rate*100:.0f}%", [inv.reference])
+                rfa_labels = [
+                    f"REGLT {inv.reference} RFA {rate*100:.0f}%",
+                    f"REGLT {inv.reference} DED RFA ANNUELLE",
+                    f"PMT {inv.reference} YEAR END REBATE {rate*100:.0f}%",
+                    f"ZAHLUNG {inv.reference} JAHRESBONUS {rate*100:.0f}%",
+                    f"{inv.reference} REMISE FIN ANNEE DEDUITE",
+                ]
+                p = _mkpay(pid, amt, dt, profile, rng.choice(rfa_labels), [inv.reference])
                 payments.append(p); consumed.add(inv.id); idx += 1
 
             # ── C2_CREDIT_NOTE ──
@@ -561,7 +918,7 @@ def generate_payments(
             elif scenario == "C2_ROUNDING":
                 delta = round(rng.uniform(-0.99, 0.99), 2)
                 if abs(delta) < 0.01: delta = 0.50
-                p = _mkpay(pid, inv.amount + delta, dt, profile, _ref_label(inv.reference, rng), [inv.reference])
+                p = _mkpay(pid, inv.amount + delta, dt, profile, _ref_label(inv.reference, rng, profile.debtor.country or "FR"), [inv.reference])
                 payments.append(p); consumed.add(inv.id); idx += 1
 
             # ── C2_SUBSET_SUM ──
@@ -571,7 +928,21 @@ def generate_payments(
                 if n >= 2:
                     grp = rem[:n]
                     total = round(sum(i.amount for i in grp), 2)
-                    p = _mkpay(pid, total, dt, profile, "REGLEMENT FACTURES EN COURS", [])
+                    subset_labels = [
+                        "REGLEMENT FACTURES EN COURS",
+                        "PAIEMENT GROUPÉ FACTURES",
+                        "VIR GLOBAL FACTURES OUVERTES",
+                        "PAYMENT MULTIPLE INVOICES",
+                        "SETTLEMENT OPEN INVOICES",
+                        "BULK PAYMENT OUTSTANDING",
+                        "SAMMELZAHLUNG RECHNUNGEN",
+                        "BETALING OPENSTAANDE FACTUREN",
+                        "PAGO FACTURAS PENDIENTES",
+                        "PAGAMENTO FATTURE IN SOSPESO",
+                        f"REGLEMENT {len(grp)} FACTURES",
+                        f"PAYMENT OF {len(grp)} INVOICES",
+                    ]
+                    p = _mkpay(pid, total, dt, profile, rng.choice(subset_labels), [])
                     payments.append(p)
                     for i in grp: consumed.add(i.id)
                     idx += n
@@ -581,7 +952,19 @@ def generate_payments(
             elif scenario == "C2_INSTALLMENT":
                 pct = rng.choice([0.30, 0.50, 0.70])
                 amt1 = round(inv.amount * pct, 2)
-                p1 = _mkpay(pid, amt1, dt, profile, f"ACOMPTE {int(pct*100)}% {inv.reference}", [inv.reference])
+                acompte_labels = [
+                    f"ACOMPTE {int(pct*100)}% {inv.reference}",
+                    f"AVANCE {int(pct*100)}% {inv.reference}",
+                    f"PARTIAL PMT {int(pct*100)}% {inv.reference}",
+                    f"ADVANCE PAYMENT {int(pct*100)}% {inv.reference}",
+                    f"ANZAHLUNG {int(pct*100)}% {inv.reference}",
+                    f"PAGO ANTICIPADO {int(pct*100)}% {inv.reference}",
+                    f"ACCONTO {int(pct*100)}% {inv.reference}",
+                    f"1ERE ECHEANCE {inv.reference}",
+                    f"FIRST INSTALLMENT {inv.reference}",
+                    f"DOWN PAYMENT {inv.reference}",
+                ]
+                p1 = _mkpay(pid, amt1, dt, profile, rng.choice(acompte_labels), [inv.reference])
                 p1.signals.keywords = {"partial": True, "advance": True, "credit_note": False, "final": False}
                 payments.append(p1)
                 # Solde
@@ -590,7 +973,17 @@ def generate_payments(
                 dt2 = dt + timedelta(days=rng.randint(15, 35))
                 while dt2.weekday() >= 5: dt2 += timedelta(days=1)
                 rest = round(inv.amount - amt1, 2)
-                p2 = _mkpay(pid2, rest, dt2, profile, f"SOLDE {int((1-pct)*100)}% {inv.reference}", [inv.reference])
+                solde_labels = [
+                    f"SOLDE {int((1-pct)*100)}% {inv.reference}",
+                    f"FINAL PAYMENT {inv.reference}",
+                    f"BALANCE DUE {inv.reference}",
+                    f"RESTZAHLUNG {inv.reference}",
+                    f"SALDO {inv.reference}",
+                    f"DERNIER VERSEMENT {inv.reference}",
+                    f"2EME ECHEANCE {inv.reference}",
+                    f"COMPLEMENTO PAGO {inv.reference}",
+                ]
+                p2 = _mkpay(pid2, rest, dt2, profile, rng.choice(solde_labels), [inv.reference])
                 p2.signals.keywords = {"partial": False, "advance": False, "credit_note": False, "final": True}
                 payments.append(p2)
                 consumed.add(inv.id); idx += 1
@@ -602,7 +995,25 @@ def generate_payments(
                 if len(same) >= 2:
                     total = round(sum(i.amount for i in same), 2)
                     mname = MONTH_NAMES_FR.get(target_month, str(target_month))
-                    p = _mkpay(pid, total, dt, profile, f"REGLEMENT FACTURES {mname} 2024", [])
+                    MONTH_EN = {1:"JANUARY",2:"FEBRUARY",3:"MARCH",4:"APRIL",5:"MAY",6:"JUNE",
+                                7:"JULY",8:"AUGUST",9:"SEPTEMBER",10:"OCTOBER",11:"NOVEMBER",12:"DECEMBER"}
+                    MONTH_DE = {1:"JANUAR",2:"FEBRUAR",3:"MÄRZ",4:"APRIL",5:"MAI",6:"JUNI",
+                                7:"JULI",8:"AUGUST",9:"SEPTEMBER",10:"OKTOBER",11:"NOVEMBER",12:"DEZEMBER"}
+                    MONTH_ES = {1:"ENERO",2:"FEBRERO",3:"MARZO",4:"ABRIL",5:"MAYO",6:"JUNIO",
+                                7:"JULIO",8:"AGOSTO",9:"SEPTIEMBRE",10:"OCTUBRE",11:"NOVIEMBRE",12:"DICIEMBRE"}
+                    temporal_labels = [
+                        f"REGLEMENT FACTURES {mname} 2024",
+                        f"PAIEMENT FACTURES MOIS DE {mname}",
+                        f"VIR GLOBAL {mname} 2024",
+                        f"PAYMENT INVOICES {MONTH_EN.get(target_month,'')} 2024",
+                        f"SETTLEMENT {MONTH_EN.get(target_month,'')} INVOICES",
+                        f"ZAHLUNG RECHNUNGEN {MONTH_DE.get(target_month,'')} 2024",
+                        f"PAGO FACTURAS {MONTH_ES.get(target_month,'')} 2024",
+                        f"REGLT MENSUEL {mname[:3]} 2024",
+                        f"MONTHLY PAYMENT {MONTH_EN.get(target_month,'')[:3]} 2024",
+                    ]
+                    label = rng.choice(temporal_labels)
+                    p = _mkpay(pid, total, dt, profile, label, [])
                     p.signals.label_periods = [f"{mname} 2024"]
                     payments.append(p)
                     for i in same: consumed.add(i.id)
@@ -613,7 +1024,7 @@ def generate_payments(
             elif scenario == "C2_WHT":
                 rate = WHT_RATES.get(profile.debtor.country, 0.15)
                 amt = round(inv.amount * (1 - rate), 2)
-                p = _mkpay(pid, amt, dt, profile, _ref_label(inv.reference, rng), [inv.reference])
+                p = _mkpay(pid, amt, dt, profile, _ref_label(inv.reference, rng, profile.debtor.country or "FR"), [inv.reference])
                 payments.append(p); consumed.add(inv.id); idx += 1
 
             # ── C2_HT_ERROR ──
@@ -624,7 +1035,14 @@ def generate_payments(
             # ── C3_FUZZY ──
             elif scenario == "C3_FUZZY":
                 typo = introduce_typo(inv.reference, rng)
-                p = _mkpay(pid, inv.amount, dt, profile, f"REGLT {typo}", [typo])
+                fuzzy_labels = [
+                    f"REGLT {typo}", f"PAIEMENT {typo}", f"PMT {typo}",
+                    f"PAYMENT {typo}", f"ZAHLUNG {typo}", f"BETALING {typo}",
+                    f"PAGO {typo}", f"PAGAMENTO {typo}", f"VIR {typo}",
+                    f"TRANSFER {typo}", f"ÜBERWEISUNG {typo}",
+                    f"SETTLEMENT {typo}", f"WIRE {typo}",
+                ]
+                p = _mkpay(pid, inv.amount, dt, profile, rng.choice(fuzzy_labels), [typo])
                 payments.append(p); consumed.add(inv.id); idx += 1
 
             # ── C6_CRYPTIC ──
@@ -639,7 +1057,7 @@ def generate_payments(
 
             # ── Fallback ──
             else:
-                p = _mkpay(pid, inv.amount, dt, profile, _ref_label(inv.reference, rng), [inv.reference])
+                p = _mkpay(pid, inv.amount, dt, profile, _ref_label(inv.reference, rng, profile.debtor.country or "FR"), [inv.reference])
                 payments.append(p); consumed.add(inv.id); idx += 1
 
     payments.sort(key=lambda p: p.date or date(2024, 1, 1))

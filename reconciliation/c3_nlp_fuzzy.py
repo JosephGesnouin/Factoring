@@ -280,15 +280,17 @@ class EmbeddingMatcher:
     def __init__(self, model_name: str = "paraphrase-multilingual-MiniLM-L12-v2"):
         self.model_name = model_name
         self._model = None
+        self._model_unavailable = False
         self._invoice_embeddings: dict[str, Any] = {}
 
     def _load_model(self):
-        if self._model is not None:
+        if self._model is not None or self._model_unavailable:
             return
         try:
             from sentence_transformers import SentenceTransformer
             self._model = SentenceTransformer(self.model_name)
         except ImportError:
+            self._model_unavailable = True
             logger.warning("sentence-transformers not available, embedding matching disabled")
 
     def index_invoices(self, invoices: list[Invoice]) -> None:
@@ -354,23 +356,29 @@ class NLPFuzzyMatcher:
         if not self._invoice_lookup:
             self.build_index(open_invoices)
 
+        # Pre-filter to debtor's invoices for performance
+        if payment.debtor_id:
+            debtor_invoices = [i for i in open_invoices if i.debtor_id == payment.debtor_id]
+        else:
+            debtor_invoices = open_invoices[:100]  # Cap to avoid O(n²) on large portfolios
+
         # C3.1: Fuzzy reference matching
-        result = self._fuzzy_ref_match(payment, open_invoices)
+        result = self._fuzzy_ref_match(payment, debtor_invoices)
         if result:
             return result
 
         # C3.4: Combined NER + fuzzy + amount
-        result = self._combined_nlp_match(payment, open_invoices)
+        result = self._combined_nlp_match(payment, debtor_invoices)
         if result:
             return result
 
         # C3.5: TF-IDF similarity
-        result = self._tfidf_match(payment, open_invoices)
+        result = self._tfidf_match(payment, debtor_invoices)
         if result:
             return result
 
         # C3.3: Embedding similarity (last resort in C3, expensive)
-        result = self._embedding_match(payment, open_invoices)
+        result = self._embedding_match(payment, debtor_invoices)
         if result:
             return result
 
@@ -386,16 +394,23 @@ class NLPFuzzyMatcher:
         best_invoice: Invoice | None = None
         best_ref = ""
 
-        for pref in payment_refs:
+        for pref in payment_refs[:5]:  # limit refs to check
+            pref_norm = re.sub(r"[^A-Z0-9]", "", pref.upper())
+
+            # Fast pre-filter: cheap numeric similarity to shortlist candidates
+            candidates: list[tuple[Invoice, str, float]] = []
             for inv in invoices:
                 if payment.debtor_id and inv.debtor_id != payment.debtor_id:
                     continue
-
                 inv_ref_norm = re.sub(r"[^A-Z0-9]", "", inv.reference.upper())
-                pref_norm = re.sub(r"[^A-Z0-9]", "", pref.upper())
+                quick = _numeric_ref_similarity(pref_norm, inv_ref_norm)
+                if quick > 0.3:
+                    candidates.append((inv, inv_ref_norm, quick))
 
+            # Full composite score only on top candidates
+            candidates.sort(key=lambda x: x[2], reverse=True)
+            for inv, inv_ref_norm, _ in candidates[:10]:
                 score = compute_composite_fuzzy_score(pref_norm, inv_ref_norm)
-
                 if score > best_score:
                     best_score = score
                     best_invoice = inv

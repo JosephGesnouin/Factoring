@@ -277,9 +277,10 @@ class BusinessRuleMatcher:
                         rule_id="R-M006",
                     )
 
-        # Multi-invoice + credit note combination
-        for n in range(2, min(len(invoices) + 1, 6)):
-            for combo in combinations(invoices, n):
+        # Multi-invoice + credit note combination (limit to avoid combinatorial explosion)
+        limited_invs = invoices[:10]
+        for n in range(2, min(len(limited_invs) + 1, 5)):
+            for combo in combinations(limited_invs, n):
                 combo_total = sum(inv.amount for inv in combo)
                 for cn in credits:
                     expected = combo_total - cn.amount

@@ -130,6 +130,7 @@ class LLMClient:
     def __init__(self, config: C5Config):
         self.config = config
         self._client = None
+        self._client_unavailable = False
         self._cache: dict[str, Any] = {}
         self._total_tokens = 0
         self._total_cost = 0.0
@@ -137,7 +138,7 @@ class LLMClient:
 
     def _init_client(self):
         """Lazy-initialize the LLM client."""
-        if self._client is not None:
+        if self._client is not None or self._client_unavailable:
             return
 
         if "claude" in self.config.model:
@@ -154,6 +155,7 @@ class LLMClient:
             self._client = openai.OpenAI()
             self._provider = "openai"
         except ImportError:
+            self._client_unavailable = True
             logger.error("No LLM client available (anthropic or openai)")
             self._provider = None
 
