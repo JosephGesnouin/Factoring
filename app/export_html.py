@@ -243,6 +243,71 @@ METHOD_EXPLANATIONS = {
     ),
 }
 
+# ── Compute recommendations for HUMAN_REVIEW payments ──
+print("Computing recommendations for unmatched payments...")
+inv_by_debtor = defaultdict(list)
+for inv in data["invoices"]:
+    inv_by_debtor[inv.debtor_id].append(inv)
+
+recommendations = {}  # payment_id -> list of {ref, amount, score, reason}
+
+human_review_df = df[df["method"] == "HUMAN_REVIEW"]
+for _, r in human_review_df.iterrows():
+    pay_id = r["payment_id"]
+    pay_amount = r["amount"]
+    pay_date = r["date"]
+    debtor_id = r["debtor_id"]
+
+    candidates = []
+    search_invoices = inv_by_debtor.get(debtor_id, data["invoices"][:50])
+
+    for inv in search_invoices:
+        score = 0.0
+        reasons = []
+
+        # Amount proximity (0-0.40)
+        if inv.amount > 0:
+            diff_pct = abs(pay_amount - inv.amount) / inv.amount
+            if diff_pct < 0.001:
+                score += 0.40; reasons.append("montant exact")
+            elif diff_pct < 0.05:
+                score += 0.30; reasons.append(f"ecart {diff_pct:.1%}")
+            elif diff_pct < 0.15:
+                score += 0.15; reasons.append(f"ecart {diff_pct:.0%}")
+            elif diff_pct < 0.30:
+                score += 0.05
+
+        # Debtor match (0-0.25)
+        if inv.debtor_id == debtor_id:
+            score += 0.25; reasons.append("meme debiteur")
+
+        # Temporal proximity (0-0.20)
+        if pay_date and inv.due_date:
+            day_diff = abs((pay_date - inv.due_date).days)
+            if day_diff <= 7:
+                score += 0.20; reasons.append(f"echeance +{day_diff}j")
+            elif day_diff <= 30:
+                score += 0.12; reasons.append(f"echeance +{day_diff}j")
+            elif day_diff <= 60:
+                score += 0.05
+
+        # Amount HT match (0-0.15)
+        if inv.amount_ht > 0 and abs(pay_amount - inv.amount_ht) / inv.amount_ht < 0.01:
+            score += 0.15; reasons.append("montant HT")
+
+        if score > 0.10:
+            candidates.append({
+                "ref": inv.reference,
+                "amount": inv.amount,
+                "score": min(score, 1.0),
+                "reason": " | ".join(reasons[:3]),
+            })
+
+    candidates.sort(key=lambda x: -x["score"])
+    recommendations[pay_id] = candidates[:5]
+
+print(f"  Recommendations computed for {len(recommendations)} payments")
+
 # Build FULL catalogue grouped by method
 print("Building full catalogue...")
 catalogue_html = ""
@@ -258,7 +323,7 @@ for method_name in method_order:
     count = len(group)
 
     catalogue_html += f"""
-    <div class="method-group">
+    <div class="method-group open">
       <div class="method-header" onclick="this.parentElement.classList.toggle('open')">
         <span class="badge {badge_cls}">{method_name}</span>
         <span class="method-title">{expl_title}</span>
@@ -269,9 +334,21 @@ for method_name in method_order:
         <div class="method-explanation">{expl_text}</div>
         <table class="cat-table">
           <tr>
-            <th>ID</th><th>Date</th><th>Montant EUR</th><th>Debiteur</th>
-            <th>Libelle du paiement</th><th>Confiance</th><th>Flags</th>
-            <th>Facture(s) matchee(s)</th>
+            <th style="min-width:80px">ID</th>
+            <th style="min-width:90px">Date</th>
+            <th style="min-width:100px">Montant EUR</th>
+            <th style="min-width:140px">Debiteur</th>
+            <th style="min-width:250px">Libelle du paiement</th>
+            <th style="min-width:60px">Conf.</th>
+            <th style="min-width:120px">Flags</th>
+            <th style="min-width:180px">Facture(s) matchee(s)</th>
+          </tr>"""
+
+    # For HUMAN_REVIEW, add recommendation column
+    is_human_review = (method_name == "HUMAN_REVIEW")
+    if is_human_review:
+        catalogue_html = catalogue_html.rstrip("</tr>")
+        catalogue_html += """<th style="min-width:320px">Top 5 recommandations (tri par score)</th>
           </tr>"""
 
     for _, r in group.iterrows():
@@ -289,8 +366,30 @@ for method_name in method_order:
             <td class="label-cell" title="{label_esc}">{label_esc[:50]}</td>
             <td class="num">{conf_str}</td>
             <td class="flags-cell">{flags_str}</td>
-            <td class="inv-cell">{inv_str}</td>
-          </tr>"""
+            <td class="inv-cell">{inv_str}</td>"""
+
+        if is_human_review:
+            recs = recommendations.get(r["payment_id"], [])
+            if recs:
+                rec_html = '<div class="reco-list">'
+                for rank, rec in enumerate(recs[:5], 1):
+                    bar_w = int(rec["score"] * 100)
+                    rec_html += (
+                        f'<div class="reco-item">'
+                        f'<span class="reco-rank">#{rank}</span>'
+                        f'<span class="reco-ref">{rec["ref"]}</span>'
+                        f'<span class="reco-amt">{rec["amount"]:,.2f}</span>'
+                        f'<span class="reco-bar"><span class="reco-fill" style="width:{bar_w}%"></span></span>'
+                        f'<span class="reco-score">{rec["score"]:.0%}</span>'
+                        f'<span class="reco-reason">{rec["reason"]}</span>'
+                        f'</div>'
+                    )
+                rec_html += '</div>'
+                catalogue_html += f'<td class="reco-cell">{rec_html}</td>'
+            else:
+                catalogue_html += '<td class="reco-cell" style="color:#94a3b8">Aucun candidat</td>'
+
+        catalogue_html += "</tr>"
 
     catalogue_html += """
         </table>
@@ -505,6 +604,23 @@ html = f"""<!DOCTYPE html>
                           max-width:200px; word-break:break-all; }}
   .cat-table .flags-cell {{ font-size:0.73rem; color:var(--yellow); font-weight:600; }}
 
+  /* Recommendation cells */
+  .reco-cell {{ padding:4px !important; }}
+  .reco-list {{ display:flex; flex-direction:column; gap:3px; }}
+  .reco-item {{ display:grid; grid-template-columns:22px 130px 80px 60px 36px 1fr;
+                gap:4px; align-items:center; font-size:0.72rem; padding:2px 4px;
+                background:#f8fafc; border-radius:3px; }}
+  .reco-rank {{ font-weight:700; color:var(--indigo); }}
+  .reco-ref {{ font-family:monospace; font-size:0.7rem; color:#334155; overflow:hidden;
+               text-overflow:ellipsis; white-space:nowrap; }}
+  .reco-amt {{ text-align:right; font-variant-numeric:tabular-nums; color:#475569; }}
+  .reco-bar {{ height:8px; background:#e2e8f0; border-radius:4px; overflow:hidden; }}
+  .reco-fill {{ display:block; height:100%; background:linear-gradient(90deg,var(--green),var(--indigo));
+                border-radius:4px; }}
+  .reco-score {{ font-weight:700; color:var(--indigo); text-align:right; }}
+  .reco-reason {{ color:var(--slate); font-size:0.68rem; overflow:hidden;
+                  text-overflow:ellipsis; white-space:nowrap; }}
+
   @media(max-width:768px) {{ .kpis {{ grid-template-columns:repeat(2,1fr); }}
     .charts-2 {{ grid-template-columns:1fr; }} }}
 </style>
@@ -611,10 +727,18 @@ html = f"""<!DOCTYPE html>
 
 <!-- CATALOGUE COMPLET -->
 <h2 class="section">Catalogue Complet — Tous les {total} paiements par methode</h2>
-<p style="color:var(--slate); margin-bottom:1rem">
-  Cliquez sur une methode pour derouler tous les paiements avec leur contenu complet.
-  Chaque section explique la logique de matching et montre le libelle, montant, facture(s) matchee(s) et flags.
+<p style="color:var(--slate); margin-bottom:0.5rem">
+  Chaque section explique la logique de matching. Pour les paiements <b>Revue Humaine</b>,
+  une colonne <b>recommandation</b> affiche les 5 meilleures factures candidates triees par score de proximite.
 </p>
+<div style="margin-bottom:1rem">
+  <button onclick="document.querySelectorAll('.method-group').forEach(e=>e.classList.add('open'))"
+          style="padding:6px 16px; border:1px solid #e2e8f0; border-radius:6px; cursor:pointer; font-size:0.85rem; background:white;">
+    Tout ouvrir</button>
+  <button onclick="document.querySelectorAll('.method-group').forEach(e=>e.classList.remove('open'))"
+          style="padding:6px 16px; border:1px solid #e2e8f0; border-radius:6px; cursor:pointer; font-size:0.85rem; background:white; margin-left:6px;">
+    Tout fermer</button>
+</div>
 {catalogue_html}
 
 <!-- FOOTER -->
