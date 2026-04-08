@@ -271,60 +271,56 @@ class TFIDFMatcher:
 
 
 # ---------------------------------------------------------------------------
-# C3.3 — Embedding-based Similarity
+# C3.3 — Embedding-based Similarity (DESACTIVE — necessite sentence-transformers)
 # ---------------------------------------------------------------------------
 
-class EmbeddingMatcher:
-    """Semantic embedding similarity for payment-invoice matching."""
-
-    def __init__(self, model_name: str = "paraphrase-multilingual-MiniLM-L12-v2"):
-        self.model_name = model_name
-        self._model = None
-        self._model_unavailable = False
-        self._invoice_embeddings: dict[str, Any] = {}
-
-    def _load_model(self):
-        if self._model is not None or self._model_unavailable:
-            return
-        try:
-            from sentence_transformers import SentenceTransformer
-            self._model = SentenceTransformer(self.model_name)
-        except ImportError:
-            self._model_unavailable = True
-            logger.warning("sentence-transformers not available, embedding matching disabled")
-
-    def index_invoices(self, invoices: list[Invoice]) -> None:
-        """Pre-compute embeddings for all open invoices."""
-        self._load_model()
-        if self._model is None:
-            return
-
-        texts = [
-            f"Invoice {inv.reference} debtor {inv.debtor_id} amount {inv.amount}"
-            for inv in invoices
-        ]
-        embeddings = self._model.encode(texts)
-        for inv, emb in zip(invoices, embeddings):
-            self._invoice_embeddings[inv.id] = emb
-
-    def find_similar(self, payment_text: str, top_k: int = 5) -> list[tuple[str, float]]:
-        """Find invoices with similar semantic meaning."""
-        self._load_model()
-        if self._model is None or not self._invoice_embeddings:
-            return []
-
-        import numpy as np
-
-        query_emb = self._model.encode([payment_text])[0]
-        results = []
-        for inv_id, inv_emb in self._invoice_embeddings.items():
-            similarity = float(np.dot(query_emb, inv_emb) / (
-                np.linalg.norm(query_emb) * np.linalg.norm(inv_emb)
-            ))
-            results.append((inv_id, similarity))
-
-        results.sort(key=lambda x: x[1], reverse=True)
-        return results[:top_k]
+# class EmbeddingMatcher:
+#     """Semantic embedding similarity for payment-invoice matching."""
+#
+#     def __init__(self, model_name: str = "paraphrase-multilingual-MiniLM-L12-v2"):
+#         self.model_name = model_name
+#         self._model = None
+#         self._model_unavailable = False
+#         self._invoice_embeddings: dict[str, Any] = {}
+#
+#     def _load_model(self):
+#         if self._model is not None or self._model_unavailable:
+#             return
+#         try:
+#             from sentence_transformers import SentenceTransformer
+#             self._model = SentenceTransformer(self.model_name)
+#         except ImportError:
+#             self._model_unavailable = True
+#             logger.warning("sentence-transformers not available, embedding matching disabled")
+#
+#     def index_invoices(self, invoices: list[Invoice]) -> None:
+#         """Pre-compute embeddings for all open invoices."""
+#         self._load_model()
+#         if self._model is None:
+#             return
+#         texts = [
+#             f"Invoice {inv.reference} debtor {inv.debtor_id} amount {inv.amount}"
+#             for inv in invoices
+#         ]
+#         embeddings = self._model.encode(texts)
+#         for inv, emb in zip(invoices, embeddings):
+#             self._invoice_embeddings[inv.id] = emb
+#
+#     def find_similar(self, payment_text: str, top_k: int = 5) -> list[tuple[str, float]]:
+#         """Find invoices with similar semantic meaning."""
+#         self._load_model()
+#         if self._model is None or not self._invoice_embeddings:
+#             return []
+#         import numpy as np
+#         query_emb = self._model.encode([payment_text])[0]
+#         results = []
+#         for inv_id, inv_emb in self._invoice_embeddings.items():
+#             similarity = float(np.dot(query_emb, inv_emb) / (
+#                 np.linalg.norm(query_emb) * np.linalg.norm(inv_emb)
+#             ))
+#             results.append((inv_id, similarity))
+#         results.sort(key=lambda x: x[1], reverse=True)
+#         return results[:top_k]
 
 
 # ---------------------------------------------------------------------------
@@ -340,15 +336,14 @@ class NLPFuzzyMatcher:
     def __init__(self, config: C3Config | None = None):
         self.config = config or C3Config()
         self._tfidf = TFIDFMatcher(ngram_range=self.config.tfidf_ngram_range)
-        self._embedder = EmbeddingMatcher(model_name=self.config.embedding_model)
+        # self._embedder = EmbeddingMatcher(model_name=self.config.embedding_model)  # DESACTIVE
         self._invoice_lookup: dict[str, Invoice] = {}
 
     def build_index(self, invoices: list[Invoice]) -> None:
         """Build all NLP indexes."""
         self._invoice_lookup = {inv.id: inv for inv in invoices}
         self._tfidf.fit(invoices)
-        # Embedding indexing is lazy (expensive), only if needed
-        self._embedder_indexed = False
+        # self._embedder_indexed = False  # DESACTIVE
         self._invoices = invoices
 
     def match(self, payment: Payment, open_invoices: list[Invoice]) -> MatchResult | None:
@@ -377,10 +372,10 @@ class NLPFuzzyMatcher:
         if result:
             return result
 
-        # C3.3: Embedding similarity (last resort in C3, expensive)
-        result = self._embedding_match(payment, debtor_invoices)
-        if result:
-            return result
+        # C3.3: Embedding similarity — DESACTIVE (necessite sentence-transformers)
+        # result = self._embedding_match(payment, debtor_invoices)
+        # if result:
+        #     return result
 
         return None
 
@@ -532,35 +527,25 @@ class NLPFuzzyMatcher:
 
         return None
 
-    def _embedding_match(self, payment: Payment, invoices: list[Invoice]) -> MatchResult | None:
-        """C3.3: Semantic embedding similarity match."""
-        if not self._embedder_indexed:
-            self._embedder.index_invoices(self._invoices)
-            self._embedder_indexed = True
-
-        query = f"Payment {payment.label_normalized} amount {payment.amount}"
-        results = self._embedder.find_similar(query, top_k=3)
-
-        for inv_id, score in results:
-            inv = self._invoice_lookup.get(inv_id)
-            if not inv:
-                continue
-            if payment.debtor_id and inv.debtor_id != payment.debtor_id:
-                continue
-
-            if score >= self.config.embedding_similarity_threshold:
-                amount_diff_pct = abs(payment.amount - inv.amount) / max(inv.amount, 1)
-                if amount_diff_pct < 0.10:
-                    confidence = min(score * 0.85, 0.88)
-                    return MatchResult(
-                        payment_id=payment.id,
-                        invoices=[inv],
-                        method=MatchMethod.C3_EMBEDDING,
-                        confidence=confidence,
-                        allocated={inv.reference: min(payment.amount, inv.amount)},
-                        flags=["EMBEDDING_MATCH"],
-                        rule_id="R-EMBED",
-                        metadata={"embedding_score": score},
-                    )
-
-        return None
+    # def _embedding_match(self, payment: Payment, invoices: list[Invoice]) -> MatchResult | None:
+    #     """C3.3: Semantic embedding similarity match — DESACTIVE."""
+    #     if not self._embedder_indexed:
+    #         self._embedder.index_invoices(self._invoices)
+    #         self._embedder_indexed = True
+    #     query = f"Payment {payment.label_normalized} amount {payment.amount}"
+    #     results = self._embedder.find_similar(query, top_k=3)
+    #     for inv_id, score in results:
+    #         inv = self._invoice_lookup.get(inv_id)
+    #         if not inv: continue
+    #         if payment.debtor_id and inv.debtor_id != payment.debtor_id: continue
+    #         if score >= self.config.embedding_similarity_threshold:
+    #             amount_diff_pct = abs(payment.amount - inv.amount) / max(inv.amount, 1)
+    #             if amount_diff_pct < 0.10:
+    #                 confidence = min(score * 0.85, 0.88)
+    #                 return MatchResult(
+    #                     payment_id=payment.id, invoices=[inv],
+    #                     method=MatchMethod.C3_EMBEDDING, confidence=confidence,
+    #                     allocated={inv.reference: min(payment.amount, inv.amount)},
+    #                     flags=["EMBEDDING_MATCH"], rule_id="R-EMBED",
+    #                     metadata={"embedding_score": score})
+    #     return None

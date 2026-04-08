@@ -83,8 +83,8 @@ class C2Config:
 class C3Config:
     """Layer 3 - NLP/Fuzzy configuration."""
     fuzzy_min_score: float = 0.75
-    embedding_model: str = "paraphrase-multilingual-MiniLM-L12-v2"
-    embedding_similarity_threshold: float = 0.80
+    # embedding_model: str = "paraphrase-multilingual-MiniLM-L12-v2"  # DESACTIVE
+    # embedding_similarity_threshold: float = 0.80  # DESACTIVE
     tfidf_ngram_range: tuple[int, int] = (2, 4)
     ner_confidence_threshold: float = 0.70
 

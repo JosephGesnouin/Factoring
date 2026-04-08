@@ -18,8 +18,8 @@ scikit-learn>=1.3           # C3/C4 : TF-IDF, meta-classifieur, cross-validation
 lightgbm>=4.0               # C4 : modele ensemble LightGBM
 xgboost>=2.0                # C4 : modele ensemble XGBoost
 
-# ── Embeddings semantiques (C3 avance) ──
-sentence-transformers>=2.2  # C3 : embeddings multilingues (optionnel)
+# ── Embeddings semantiques (C3 avance) — DESACTIVE pour l'instant ──
+# sentence-transformers>=2.2  # C3 : embeddings multilingues (optionnel)
 
 # ── LLM / IA Generative (C5) ──
 anthropic>=0.30             # C5 : API Claude (optionnel)
