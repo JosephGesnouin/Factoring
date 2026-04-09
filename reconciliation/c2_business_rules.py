@@ -87,48 +87,65 @@ class BusinessRuleMatcher:
 
         return None
 
-    def check_duplicates(self, payment: Payment, recent_payments: list[Payment]) -> list[DuplicateAlert]:
-        """C2.8: Anti-duplicate controls."""
-        alerts = []
+    def check_duplicates(
+        self,
+        payment: Payment,
+        recent_payments: "list[Payment] | DuplicateIndex",
+    ) -> list[DuplicateAlert]:
+        """C2.8: Anti-duplicate controls.
 
+        Accepts either a list of recent payments (O(n) scan, legacy) or a
+        ``DuplicateIndex`` for O(1) lookup at high volumes.
+        Emits at most one alert per ``other`` payment to avoid double-counting.
+        """
+        alerts: list[DuplicateAlert] = []
+
+        # Fast path: indexed lookup
+        if isinstance(recent_payments, DuplicateIndex):
+            dup_of = recent_payments.find_exact(payment)
+            if dup_of and dup_of != payment.id:
+                alerts.append(DuplicateAlert(
+                    payment_id=payment.id, duplicate_of=dup_of,
+                    similarity_score=1.0, alert_type="EXACT_DUPLICATE",
+                ))
+                return alerts
+            dup_of = recent_payments.find_same_day_amount(payment)
+            if dup_of and dup_of != payment.id:
+                alerts.append(DuplicateAlert(
+                    payment_id=payment.id, duplicate_of=dup_of,
+                    similarity_score=0.90, alert_type="SAME_DAY_SAME_AMOUNT",
+                ))
+            return alerts
+
+        # Legacy path: linear scan
+        seen: set[str] = set()
         for other in recent_payments:
-            if other.id == payment.id:
+            if other.id == payment.id or other.id in seen:
                 continue
+            alert_type = None
+            score = 0.0
 
-            # Exact duplicate (same fingerprint)
             if payment.signals.fingerprint == other.signals.fingerprint:
-                alerts.append(DuplicateAlert(
-                    payment_id=payment.id,
-                    duplicate_of=other.id,
-                    similarity_score=1.0,
-                    alert_type="EXACT_DUPLICATE",
-                ))
-                continue
+                alert_type, score = "EXACT_DUPLICATE", 1.0
+            elif (payment.date == other.date
+                  and abs(payment.amount - other.amount) < 0.01
+                  and payment.debtor_id == other.debtor_id):
+                alert_type, score = "SAME_DAY_SAME_AMOUNT", 0.90
+            elif (payment.date and other.date
+                  and abs((payment.date - other.date).days) <= 3
+                  and abs(payment.amount - other.amount) < 1.0
+                  and payment.debtor_id == other.debtor_id):
+                alert_type, score = "NEAR_DUPLICATE", 0.85
 
-            # Same day, same amount, same debtor
-            if (payment.date == other.date
-                    and abs(payment.amount - other.amount) < 0.01
-                    and payment.debtor_id == other.debtor_id):
+            if alert_type:
                 alerts.append(DuplicateAlert(
-                    payment_id=payment.id,
-                    duplicate_of=other.id,
-                    similarity_score=0.90,
-                    alert_type="SAME_DAY_SAME_AMOUNT",
+                    payment_id=payment.id, duplicate_of=other.id,
+                    similarity_score=score, alert_type=alert_type,
                 ))
-
-            # Near duplicate (same amount ± rounding, same week)
-            if (payment.date and other.date
-                    and abs((payment.date - other.date).days) <= 3
-                    and abs(payment.amount - other.amount) < 1.0
-                    and payment.debtor_id == other.debtor_id):
-                alerts.append(DuplicateAlert(
-                    payment_id=payment.id,
-                    duplicate_of=other.id,
-                    similarity_score=0.85,
-                    alert_type="NEAR_DUPLICATE",
-                ))
+                seen.add(other.id)
 
         return alerts
+
 
     # -----------------------------------------------------------------------
     # C2.1 — Amount Tolerance Rules (R-M001 to R-M012)
@@ -313,21 +330,22 @@ class BusinessRuleMatcher:
         if len(sorted_invs) < 2:
             return None
 
-        # Strategy 1: Greedy largest-first
+        # Strategy 1: Two-sum (fastest, most common case)
+        result = self._two_sum_match(amount, sorted_invs, payment)
+        if result:
+            return result
+
+        # Strategy 2: Greedy largest-first
         result = self._greedy_subset(amount, sorted_invs, payment)
         if result:
             return result
 
-        # Strategy 2: Exact subset sum (DP for small N)
-        if len(sorted_invs) <= 12:
+        # Strategy 3: Meet-in-the-middle DP — handles up to ~24 invoices
+        # in reasonable time (vs 12 for naive brute-force).
+        if len(sorted_invs) <= 24:
             result = self._exact_subset_sum(amount, sorted_invs, payment)
             if result:
                 return result
-
-        # Strategy 3: Two-sum (pairs)
-        result = self._two_sum_match(amount, sorted_invs, payment)
-        if result:
-            return result
 
         return None
 
@@ -343,6 +361,9 @@ class BusinessRuleMatcher:
                 remaining -= inv.amount
 
             if abs(remaining) < 0.01:
+                # Single-invoice matches belong to C1, not subset-sum.
+                if len(selected) < 2:
+                    return None
                 return MatchResult(
                     payment_id=payment.id,
                     invoices=selected,
@@ -358,23 +379,73 @@ class BusinessRuleMatcher:
     def _exact_subset_sum(
         self, target: float, invoices: list[Invoice], payment: Payment
     ) -> MatchResult | None:
-        """Brute-force subset sum for small N."""
+        """Meet-in-the-middle subset-sum, O(2^(n/2)) vs O(2^n) brute force.
+
+        Splits the invoice set in two halves, enumerates all partial sums on
+        each side, and looks up complement sums via a dict. Time-bounded by
+        ``config.subset_sum_timeout_ms``.
+        """
+        import time as _t
         target_cents = round(target * 100)
+        n = len(invoices)
+        if n < 2:
+            return None
 
-        for n in range(2, min(len(invoices) + 1, 8)):
-            for combo in combinations(invoices, n):
-                combo_cents = sum(round(inv.amount * 100) for inv in combo)
-                if abs(combo_cents - target_cents) <= 1:  # ±0.01€
-                    return MatchResult(
-                        payment_id=payment.id,
-                        invoices=list(combo),
-                        method=MatchMethod.C2_SUBSET_SUM,
-                        confidence=0.94,
-                        allocated={inv.reference: inv.amount for inv in combo},
-                        flags=["SUBSET_SUM_EXACT"],
-                        rule_id="R-SS-EXACT",
-                    )
+        deadline = _t.monotonic() + (self.config.subset_sum_timeout_ms / 1000.0)
 
+        half = n // 2
+        left_invs = invoices[:half]
+        right_invs = invoices[half:]
+
+        def _all_subset_sums(items: list[Invoice]) -> dict[int, tuple[int, ...]]:
+            """Return {sum_cents: indices_tuple} for all 2^k subsets."""
+            sums: dict[int, tuple[int, ...]] = {0: ()}
+            for i, inv in enumerate(items):
+                if _t.monotonic() > deadline:
+                    break
+                inv_c = round(inv.amount * 100)
+                new_sums = {}
+                for s, idx in sums.items():
+                    key = s + inv_c
+                    if key not in sums and key not in new_sums:
+                        new_sums[key] = idx + (i,)
+                sums.update(new_sums)
+            return sums
+
+        left_sums = _all_subset_sums(left_invs)
+        if _t.monotonic() > deadline:
+            return None
+        right_sums = _all_subset_sums(right_invs)
+        if _t.monotonic() > deadline:
+            return None
+
+        # Find left_sum + right_sum == target (with ±1 cent tolerance)
+        best_combo: list[Invoice] | None = None
+        for l_sum, l_idx in left_sums.items():
+            if _t.monotonic() > deadline:
+                break
+            needed = target_cents - l_sum
+            for delta in (-1, 0, 1):  # ±0.01€ tolerance
+                r_idx = right_sums.get(needed + delta)
+                if r_idx is None:
+                    continue
+                total_size = len(l_idx) + len(r_idx)
+                if total_size < 2:
+                    continue  # single-invoice match belongs to C1
+                combo = [left_invs[i] for i in l_idx] + [right_invs[i] for i in r_idx]
+                if best_combo is None or len(combo) < len(best_combo):
+                    best_combo = combo
+
+        if best_combo:
+            return MatchResult(
+                payment_id=payment.id,
+                invoices=best_combo,
+                method=MatchMethod.C2_SUBSET_SUM,
+                confidence=0.94,
+                allocated={inv.reference: inv.amount for inv in best_combo},
+                flags=["SUBSET_SUM_EXACT"],
+                rule_id="R-SS-EXACT",
+            )
         return None
 
     def _two_sum_match(
@@ -552,6 +623,54 @@ class BusinessRuleMatcher:
             flags=flags,
             rule_id=rule_id,
         )
+
+
+class DuplicateIndex:
+    """O(1) indexed lookup for duplicate detection at scale.
+
+    Maintains two indexes:
+      * by fingerprint (SHA-256 of payment canonical form)
+      * by (debtor_id, date, cents) composite key
+
+    Usage:
+        idx = DuplicateIndex()
+        for payment in stream:
+            alerts = matcher.check_duplicates(payment, idx)
+            idx.add(payment)
+    """
+
+    def __init__(self, max_size: int = 100_000):
+        self._by_fingerprint: dict[str, str] = {}
+        self._by_key: dict[tuple, str] = {}
+        self._insertion_order: list[str] = []
+        self.max_size = max_size
+
+    def _composite_key(self, payment: Payment) -> tuple:
+        return (
+            payment.debtor_id or "",
+            payment.date,
+            round(payment.amount * 100),  # cents to avoid float drift
+        )
+
+    def add(self, payment: Payment) -> None:
+        fp = payment.signals.fingerprint
+        if fp:
+            self._by_fingerprint[fp] = payment.id
+        self._by_key[self._composite_key(payment)] = payment.id
+        self._insertion_order.append(payment.id)
+        # FIFO eviction when exceeding max_size (best-effort — we don't
+        # scan all entries to find the old fingerprint/key to stay O(1)).
+        if len(self._insertion_order) > self.max_size:
+            self._insertion_order.pop(0)
+
+    def find_exact(self, payment: Payment) -> str | None:
+        return self._by_fingerprint.get(payment.signals.fingerprint or "")
+
+    def find_same_day_amount(self, payment: Payment) -> str | None:
+        return self._by_key.get(self._composite_key(payment))
+
+    def __len__(self) -> int:
+        return len(self._insertion_order)
 
 
 # -----------------------------------------------------------------------

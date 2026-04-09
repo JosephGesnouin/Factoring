@@ -14,7 +14,7 @@ from typing import Any
 
 from .c0_preprocessing import PaymentPreprocessor
 from .c1_exact_matching import ExactMatcher
-from .c2_business_rules import BusinessRuleMatcher
+from .c2_business_rules import BusinessRuleMatcher, DuplicateIndex
 from .c3_nlp_fuzzy import NLPFuzzyMatcher
 from .c4_ml import MLMatcher
 from .c5_llm import LLMMatcher
@@ -86,7 +86,8 @@ class ReconciliationOrchestrator:
         self._llm_matcher = LLMMatcher(self.config.c5)
         self._review_queue = HumanReviewQueue(self.config.c6)
         self._metrics = PipelineMetrics()
-        self._recent_payments: list[Payment] = []
+        # Use indexed duplicate detection (O(1) lookup) instead of linear scan.
+        self._duplicate_index = DuplicateIndex(max_size=50_000)
         self._iban_debtor_map: dict[str, str] = {}
         self._debtor_lookup: dict[str, Debtor] = {}
 
@@ -125,20 +126,17 @@ class ReconciliationOrchestrator:
             # ── C0: Preprocessing ──
             ctx = self._run_layer_c0(ctx)
 
-            # ── Duplicate check ──
+            # ── Duplicate check (O(1) indexed lookup) ──
             duplicates = self._business_matcher.check_duplicates(
-                payment, self._recent_payments
+                payment, self._duplicate_index
             )
             if duplicates:
                 self._metrics.duplicate_alerts += len(duplicates)
                 for d in duplicates:
                     ctx.processing_log.append({"event": "DUPLICATE_ALERT", "detail": d.alert_type})
                     if d.alert_type == "EXACT_DUPLICATE":
-                        logger.warning("Exact duplicate detected: %s ↔ %s", d.payment_id, d.duplicate_of)
-
-            self._recent_payments.append(payment)
-            if len(self._recent_payments) > 10000:
-                self._recent_payments = self._recent_payments[-5000:]
+                        logger.warning("Exact duplicate: %s ↔ %s", d.payment_id, d.duplicate_of)
+            self._duplicate_index.add(payment)
 
             # ── C1: Exact matching ──
             result = self._run_layer(ctx, 1, lambda: self._exact_matcher.match(payment, open_invoices))
@@ -246,6 +244,9 @@ class ReconciliationOrchestrator:
         elapsed = (time.time() - start) * 1000
 
         if result:
+            # Ensure layer attribute is set (fixes metrics bug for C3/C4/C5
+            # matchers that don't set it themselves).
+            result.layer = layer
             result.processing_time_ms = elapsed
             ctx.candidate_matches.append(result)
             ctx.processing_log.append({

@@ -154,8 +154,8 @@ def compute_features(payment: Payment, invoice: Invoice) -> dict[str, float]:
 
 
 def _normalize_for_features(ref: str) -> str:
-    import re
-    return re.sub(r"[^A-Z0-9]", "", ref.upper())
+    from .utils import normalize_ref
+    return normalize_ref(ref)
 
 
 # ---------------------------------------------------------------------------

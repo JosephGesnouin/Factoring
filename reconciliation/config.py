@@ -83,8 +83,6 @@ class C2Config:
 class C3Config:
     """Layer 3 - NLP/Fuzzy configuration."""
     fuzzy_min_score: float = 0.75
-    # embedding_model: str = "paraphrase-multilingual-MiniLM-L12-v2"  # DESACTIVE
-    # embedding_similarity_threshold: float = 0.80  # DESACTIVE
     tfidf_ngram_range: tuple[int, int] = (2, 4)
     ner_confidence_threshold: float = 0.70
 
@@ -106,11 +104,29 @@ class C4Config:
 @dataclass
 class C5Config:
     """Layer 5 - LLM configuration."""
+    # ── Provider & model ──
+    provider: str = "anthropic"  # "anthropic" | "openai" | "disabled"
     model: str = "claude-sonnet-4-20250514"
+
+    # ── API credentials (user-provided) ──
+    # If None, falls back to env vars ANTHROPIC_API_KEY / OPENAI_API_KEY.
+    # Set explicitly to inject your own key:
+    #   cfg.c5.api_key = "sk-ant-..."
+    #   cfg.c5.api_key = "sk-..."
+    api_key: str | None = None
+    base_url: str | None = None          # for custom endpoints / proxies / Azure
+    organization: str | None = None      # OpenAI organization ID
+
+    # ── Generation parameters ──
     max_tokens: int = 1024
     temperature: float = 0.0
     max_retries: int = 2
+    timeout_seconds: float = 30.0
+
+    # ── Cost control ──
+    enabled: bool = True                 # global kill switch
     cost_limit_per_payment_usd: float = 0.05
+    monthly_budget_usd: float = 500.0
     cache_ttl_hours: int = 24
 
 

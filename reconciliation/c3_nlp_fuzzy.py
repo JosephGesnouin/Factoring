@@ -1,12 +1,12 @@
 """
-Layer C3 - NLP, Fuzzy Matching & Embeddings (Confidence 75-92%)
-Uses 8 fuzzy algorithms with composite scoring, custom NER,
-semantic embeddings, and TF-IDF character n-grams.
+Layer C3 - NLP, Fuzzy Matching (Confidence 75-92%)
+Uses 8 fuzzy algorithms with composite scoring, custom NER, and
+TF-IDF character n-grams.
 
 Components:
   C3.1 - Fuzzy matching (8 algorithms + composite score)
   C3.2 - Custom NER (10 entity types)
-  C3.3 - Semantic embeddings + vector similarity
+  C3.3 - (disabled) Semantic embeddings via sentence-transformers
   C3.4 - Combined multi-signal NLP rules
   C3.5 - TF-IDF character n-grams
 """
@@ -20,6 +20,7 @@ from typing import Any
 
 from .config import C3Config
 from .models import Invoice, MatchMethod, MatchResult, Payment
+from .utils import normalize_ref
 
 logger = logging.getLogger(__name__)
 
@@ -270,57 +271,8 @@ class TFIDFMatcher:
         return results
 
 
-# ---------------------------------------------------------------------------
-# C3.3 — Embedding-based Similarity (DESACTIVE — necessite sentence-transformers)
-# ---------------------------------------------------------------------------
-
-# class EmbeddingMatcher:
-#     """Semantic embedding similarity for payment-invoice matching."""
-#
-#     def __init__(self, model_name: str = "paraphrase-multilingual-MiniLM-L12-v2"):
-#         self.model_name = model_name
-#         self._model = None
-#         self._model_unavailable = False
-#         self._invoice_embeddings: dict[str, Any] = {}
-#
-#     def _load_model(self):
-#         if self._model is not None or self._model_unavailable:
-#             return
-#         try:
-#             from sentence_transformers import SentenceTransformer
-#             self._model = SentenceTransformer(self.model_name)
-#         except ImportError:
-#             self._model_unavailable = True
-#             logger.warning("sentence-transformers not available, embedding matching disabled")
-#
-#     def index_invoices(self, invoices: list[Invoice]) -> None:
-#         """Pre-compute embeddings for all open invoices."""
-#         self._load_model()
-#         if self._model is None:
-#             return
-#         texts = [
-#             f"Invoice {inv.reference} debtor {inv.debtor_id} amount {inv.amount}"
-#             for inv in invoices
-#         ]
-#         embeddings = self._model.encode(texts)
-#         for inv, emb in zip(invoices, embeddings):
-#             self._invoice_embeddings[inv.id] = emb
-#
-#     def find_similar(self, payment_text: str, top_k: int = 5) -> list[tuple[str, float]]:
-#         """Find invoices with similar semantic meaning."""
-#         self._load_model()
-#         if self._model is None or not self._invoice_embeddings:
-#             return []
-#         import numpy as np
-#         query_emb = self._model.encode([payment_text])[0]
-#         results = []
-#         for inv_id, inv_emb in self._invoice_embeddings.items():
-#             similarity = float(np.dot(query_emb, inv_emb) / (
-#                 np.linalg.norm(query_emb) * np.linalg.norm(inv_emb)
-#             ))
-#             results.append((inv_id, similarity))
-#         results.sort(key=lambda x: x[1], reverse=True)
-#         return results[:top_k]
+# C3.3 Semantic embedding layer removed. Re-enable by reintroducing an
+# EmbeddingMatcher class that wraps sentence-transformers.
 
 
 # ---------------------------------------------------------------------------
@@ -329,21 +281,19 @@ class TFIDFMatcher:
 
 class NLPFuzzyMatcher:
     """
-    Layer C3: Combines fuzzy matching, NER, embeddings, and TF-IDF.
+    Layer C3: Combines fuzzy matching, NER, and TF-IDF.
     Multi-signal scoring for cases not caught by C1/C2.
     """
 
     def __init__(self, config: C3Config | None = None):
         self.config = config or C3Config()
         self._tfidf = TFIDFMatcher(ngram_range=self.config.tfidf_ngram_range)
-        # self._embedder = EmbeddingMatcher(model_name=self.config.embedding_model)  # DESACTIVE
         self._invoice_lookup: dict[str, Invoice] = {}
 
     def build_index(self, invoices: list[Invoice]) -> None:
         """Build all NLP indexes."""
         self._invoice_lookup = {inv.id: inv for inv in invoices}
         self._tfidf.fit(invoices)
-        # self._embedder_indexed = False  # DESACTIVE
         self._invoices = invoices
 
     def match(self, payment: Payment, open_invoices: list[Invoice]) -> MatchResult | None:
@@ -372,11 +322,6 @@ class NLPFuzzyMatcher:
         if result:
             return result
 
-        # C3.3: Embedding similarity — DESACTIVE (necessite sentence-transformers)
-        # result = self._embedding_match(payment, debtor_invoices)
-        # if result:
-        #     return result
-
         return None
 
     def _fuzzy_ref_match(self, payment: Payment, invoices: list[Invoice]) -> MatchResult | None:
@@ -390,14 +335,14 @@ class NLPFuzzyMatcher:
         best_ref = ""
 
         for pref in payment_refs[:5]:  # limit refs to check
-            pref_norm = re.sub(r"[^A-Z0-9]", "", pref.upper())
+            pref_norm = normalize_ref(pref)
 
             # Fast pre-filter: cheap numeric similarity to shortlist candidates
             candidates: list[tuple[Invoice, str, float]] = []
             for inv in invoices:
                 if payment.debtor_id and inv.debtor_id != payment.debtor_id:
                     continue
-                inv_ref_norm = re.sub(r"[^A-Z0-9]", "", inv.reference.upper())
+                inv_ref_norm = normalize_ref(inv.reference)
                 quick = _numeric_ref_similarity(pref_norm, inv_ref_norm)
                 if quick > 0.3:
                     candidates.append((inv, inv_ref_norm, quick))
@@ -459,9 +404,9 @@ class NLPFuzzyMatcher:
             signals_used = []
 
             # NER reference match
-            inv_ref_norm = re.sub(r"[^A-Z0-9]", "", inv.reference.upper())
+            inv_ref_norm = normalize_ref(inv.reference)
             for ref in invoice_refs:
-                ref_norm = re.sub(r"[^A-Z0-9]", "", ref.upper())
+                ref_norm = normalize_ref(ref)
                 ref_score = compute_composite_fuzzy_score(ref_norm, inv_ref_norm)
                 if ref_score > 0.6:
                     score += ref_score * 0.5
@@ -526,26 +471,3 @@ class NLPFuzzyMatcher:
                 )
 
         return None
-
-    # def _embedding_match(self, payment: Payment, invoices: list[Invoice]) -> MatchResult | None:
-    #     """C3.3: Semantic embedding similarity match — DESACTIVE."""
-    #     if not self._embedder_indexed:
-    #         self._embedder.index_invoices(self._invoices)
-    #         self._embedder_indexed = True
-    #     query = f"Payment {payment.label_normalized} amount {payment.amount}"
-    #     results = self._embedder.find_similar(query, top_k=3)
-    #     for inv_id, score in results:
-    #         inv = self._invoice_lookup.get(inv_id)
-    #         if not inv: continue
-    #         if payment.debtor_id and inv.debtor_id != payment.debtor_id: continue
-    #         if score >= self.config.embedding_similarity_threshold:
-    #             amount_diff_pct = abs(payment.amount - inv.amount) / max(inv.amount, 1)
-    #             if amount_diff_pct < 0.10:
-    #                 confidence = min(score * 0.85, 0.88)
-    #                 return MatchResult(
-    #                     payment_id=payment.id, invoices=[inv],
-    #                     method=MatchMethod.C3_EMBEDDING, confidence=confidence,
-    #                     allocated={inv.reference: min(payment.amount, inv.amount)},
-    #                     flags=["EMBEDDING_MATCH"], rule_id="R-EMBED",
-    #                     metadata={"embedding_score": score})
-    #     return None

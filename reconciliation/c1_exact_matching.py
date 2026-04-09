@@ -30,6 +30,7 @@ from .models import (
     MatchResult,
     Payment,
 )
+from .utils import normalize_ref
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,13 @@ class InvoiceHashIndex:
     """
     Multi-format hash index for O(1) invoice lookup.
     Indexes every known variant of each invoice reference.
+
+    Deterministic: uses the invoice's own ``issue_date.year`` for year
+    variants rather than ``datetime.now()``, so indexing is reproducible
+    regardless of when it runs.
+
+    Stores multiple invoice IDs per variant (collisions allowed). Callers
+    must disambiguate by amount/debtor when multiple matches are returned.
     """
 
     PREFIXES = [
@@ -45,25 +53,35 @@ class InvoiceHashIndex:
     ]
 
     def __init__(self):
-        self._index: dict[str, str] = {}  # hash → invoice_id
+        # Store normalized variant → list of invoice_ids (not hash → single id).
+        # Raw string keys are fine — MD5 was pure overhead.
+        self._index: dict[str, list[str]] = {}
 
     def index_invoice(self, invoice: Invoice) -> None:
         ref = invoice.reference
-        for variant in self._generate_ref_variants(ref):
-            key = hashlib.md5(variant.encode()).hexdigest()
-            self._index[key] = invoice.id
+        year = invoice.issue_date.year if invoice.issue_date else None
+        for variant in self._generate_ref_variants(ref, year):
+            self._index.setdefault(variant, []).append(invoice.id)
 
     def lookup(self, extracted_ref: str) -> str | None:
-        normalized = self._normalize_ref(extracted_ref)
-        key = hashlib.md5(normalized.encode()).hexdigest()
-        return self._index.get(key)
+        """Return first invoice id matching the reference, or None.
+
+        For disambiguation, use :meth:`lookup_all`.
+        """
+        ids = self.lookup_all(extracted_ref)
+        return ids[0] if ids else None
+
+    def lookup_all(self, extracted_ref: str) -> list[str]:
+        """Return all candidate invoice ids matching the reference."""
+        normalized = normalize_ref(extracted_ref)
+        return self._index.get(normalized, [])
 
     def _normalize_ref(self, ref: str) -> str:
-        return re.sub(r"[^A-Z0-9]", "", ref.upper())
+        return normalize_ref(ref)
 
-    def _generate_ref_variants(self, ref: str) -> list[str]:
+    def _generate_ref_variants(self, ref: str, year: int | None = None) -> list[str]:
         variants: set[str] = set()
-        norm = self._normalize_ref(ref)
+        norm = normalize_ref(ref)
         variants.add(norm)
 
         # With common prefixes
@@ -80,10 +98,9 @@ class InvoiceHashIndex:
                     for prefix in self.PREFIXES[:5]:
                         variants.add(f"{prefix}{stripped.zfill(pad)}")
 
-        # With year variants
-        current_year = datetime.now().year
-        for y in [str(current_year), str(current_year - 1), str(current_year)[2:]]:
-            if num_part:
+        # With year variants (deterministic: uses invoice's own issue year)
+        if year and num_part:
+            for y in (str(year), str(year - 1), str(year)[2:]):
                 variants.add(f"{y}{num_part}")
                 variants.add(f"{num_part}{y}")
 
@@ -113,16 +130,16 @@ class ExactMatcher:
 
         for inv in invoices:
             self._invoice_by_id[inv.id] = inv
-            ref_key = re.sub(r"[^A-Z0-9]", "", inv.reference.upper())
+            ref_key = normalize_ref(inv.reference)
             self._invoice_by_ref[ref_key] = inv
             self._hash_index.index_invoice(inv)
 
             if inv.po_number:
-                po_key = re.sub(r"[^A-Z0-9]", "", inv.po_number.upper())
+                po_key = normalize_ref(inv.po_number)
                 self._po_invoice_map.setdefault(po_key, []).append(inv.id)
 
             if inv.bl_number:
-                bl_key = re.sub(r"[^A-Z0-9]", "", inv.bl_number.upper())
+                bl_key = normalize_ref(inv.bl_number)
                 self._bl_invoice_map.setdefault(bl_key, []).append(inv.id)
 
     def match(self, payment: Payment, open_invoices: list[Invoice]) -> MatchResult | None:
@@ -170,7 +187,7 @@ class ExactMatcher:
         total_matched = 0.0
 
         for ref in refs:
-            ref_key = re.sub(r"[^A-Z0-9]", "", ref.upper())
+            ref_key = normalize_ref(ref)
             invoice = self._invoice_by_ref.get(ref_key)
             if invoice is None:
                 continue
@@ -236,7 +253,7 @@ class ExactMatcher:
             if not ref_value:
                 continue
 
-            ref_key = re.sub(r"[^A-Z0-9]", "", ref_value.upper())
+            ref_key = normalize_ref(ref_value)
             invoice = self._invoice_by_ref.get(ref_key)
 
             if invoice is None:
@@ -440,7 +457,7 @@ class ExactMatcher:
             return None
 
         for ref in refs:
-            ref_key = re.sub(r"[^A-Z0-9]", "", ref.upper())
+            ref_key = normalize_ref(ref)
             invoice_ids = self._po_invoice_map.get(ref_key, [])
             if not invoice_ids:
                 continue
@@ -477,7 +494,7 @@ class ExactMatcher:
             return None
 
         for ref in refs:
-            ref_key = re.sub(r"[^A-Z0-9]", "", ref.upper())
+            ref_key = normalize_ref(ref)
             invoice_ids = self._bl_invoice_map.get(ref_key, [])
             if not invoice_ids:
                 continue

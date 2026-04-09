@@ -125,119 +125,264 @@ Respond in JSON format as specified above."""
 # ---------------------------------------------------------------------------
 
 class LLMClient:
-    """Abstraction over LLM providers (Claude, GPT, etc.)."""
+    """
+    Abstraction over LLM providers (Claude, GPT, etc.).
+
+    Supports user-provided API keys via config. Precedence:
+      1. config.api_key (explicit injection)
+      2. Environment variables (ANTHROPIC_API_KEY / OPENAI_API_KEY)
+      3. Disabled (returns None on all queries)
+
+    Usage:
+        cfg = C5Config()
+        cfg.api_key = "sk-ant-..."
+        cfg.provider = "anthropic"
+        client = LLMClient(cfg)
+    """
 
     def __init__(self, config: C5Config):
         self.config = config
         self._client = None
         self._client_unavailable = False
+        self._provider: str | None = None
         self._cache: dict[str, Any] = {}
         self._total_tokens = 0
         self._total_cost = 0.0
         self._call_count = 0
+        self._month_cost_usd = 0.0
 
     def _init_client(self):
-        """Lazy-initialize the LLM client."""
+        """Lazy-initialize the LLM client using config-provided key."""
         if self._client is not None or self._client_unavailable:
             return
 
-        if "claude" in self.config.model:
+        if not self.config.enabled:
+            self._client_unavailable = True
+            logger.info("LLM layer disabled via config")
+            return
+
+        import os
+
+        provider = (self.config.provider or "").lower()
+        # Resolve provider from model name if not explicit
+        if not provider or provider == "auto":
+            provider = "anthropic" if "claude" in self.config.model.lower() else "openai"
+
+        if provider == "disabled":
+            self._client_unavailable = True
+            return
+
+        # ── Anthropic Claude ──
+        if provider == "anthropic":
             try:
                 import anthropic
-                self._client = anthropic.Anthropic()
+                api_key = self.config.api_key or os.getenv("ANTHROPIC_API_KEY")
+                if not api_key:
+                    self._client_unavailable = True
+                    logger.warning("Anthropic API key missing (set C5Config.api_key or ANTHROPIC_API_KEY)")
+                    return
+                kwargs: dict[str, Any] = {"api_key": api_key, "timeout": self.config.timeout_seconds}
+                if self.config.base_url:
+                    kwargs["base_url"] = self.config.base_url
+                self._client = anthropic.Anthropic(**kwargs)
                 self._provider = "anthropic"
+                logger.info("Anthropic client initialized (model=%s)", self.config.model)
                 return
             except ImportError:
-                pass
+                logger.warning("anthropic package not installed")
+                self._client_unavailable = True
+                return
 
-        try:
-            import openai
-            self._client = openai.OpenAI()
-            self._provider = "openai"
-        except ImportError:
-            self._client_unavailable = True
-            logger.error("No LLM client available (anthropic or openai)")
-            self._provider = None
+        # ── OpenAI GPT ──
+        if provider == "openai":
+            try:
+                import openai
+                api_key = self.config.api_key or os.getenv("OPENAI_API_KEY")
+                if not api_key:
+                    self._client_unavailable = True
+                    logger.warning("OpenAI API key missing (set C5Config.api_key or OPENAI_API_KEY)")
+                    return
+                kwargs = {"api_key": api_key, "timeout": self.config.timeout_seconds}
+                if self.config.base_url:
+                    kwargs["base_url"] = self.config.base_url
+                if self.config.organization:
+                    kwargs["organization"] = self.config.organization
+                self._client = openai.OpenAI(**kwargs)
+                self._provider = "openai"
+                logger.info("OpenAI client initialized (model=%s)", self.config.model)
+                return
+            except ImportError:
+                logger.warning("openai package not installed")
+                self._client_unavailable = True
+                return
+
+        self._client_unavailable = True
+        logger.error("Unknown LLM provider: %s", provider)
+
+    # Approximate pricing ($/1K tokens) for common models. Keep conservative.
+    _PRICING = {
+        "claude-sonnet": (0.003, 0.015),   # input, output
+        "claude-opus":   (0.015, 0.075),
+        "claude-haiku":  (0.0008, 0.004),
+        "gpt-4":         (0.03, 0.06),
+        "gpt-4-turbo":   (0.01, 0.03),
+        "gpt-4o":        (0.005, 0.015),
+        "gpt-3.5":       (0.0005, 0.0015),
+    }
+
+    def _estimate_cost(self, input_tokens: int, output_tokens: int) -> float:
+        model = self.config.model.lower()
+        for prefix, (in_price, out_price) in self._PRICING.items():
+            if prefix in model:
+                return (input_tokens * in_price + output_tokens * out_price) / 1000
+        return 0.0
 
     def query(self, prompt: str, system: str = SYSTEM_PROMPT) -> dict[str, Any] | None:
-        """Send prompt to LLM and return parsed JSON response."""
-        # C5.4: Cache check
-        cache_key = hashlib.md5(prompt.encode()).hexdigest()
+        """Send prompt to LLM and return parsed JSON response.
+
+        Enforces monthly budget cap and retries transient failures with
+        exponential backoff.
+        """
+        # Cache check (SHA-256 with system+prompt for safety)
+        cache_key = hashlib.sha256(f"{system}|{prompt}".encode()).hexdigest()
         if cache_key in self._cache:
             logger.debug("LLM cache hit")
             return self._cache[cache_key]
+
+        # Budget guard
+        if self._month_cost_usd >= self.config.monthly_budget_usd:
+            logger.warning("LLM monthly budget exhausted (%.2f USD) — refusing call",
+                           self._month_cost_usd)
+            return None
 
         self._init_client()
         if self._client is None:
             return None
 
-        start = time.time()
         response_text = ""
+        input_tokens = output_tokens = 0
+        last_error: Exception | None = None
 
-        try:
-            if self._provider == "anthropic":
-                response = self._client.messages.create(
-                    model=self.config.model,
-                    max_tokens=self.config.max_tokens,
-                    temperature=self.config.temperature,
-                    system=system,
-                    messages=[{"role": "user", "content": prompt}],
-                )
-                response_text = response.content[0].text
-                self._total_tokens += response.usage.input_tokens + response.usage.output_tokens
+        for attempt in range(self.config.max_retries + 1):
+            start = time.time()
+            try:
+                if self._provider == "anthropic":
+                    response = self._client.messages.create(
+                        model=self.config.model,
+                        max_tokens=self.config.max_tokens,
+                        temperature=self.config.temperature,
+                        system=system,
+                        messages=[{"role": "user", "content": prompt}],
+                    )
+                    response_text = response.content[0].text
+                    input_tokens = response.usage.input_tokens
+                    output_tokens = response.usage.output_tokens
 
-            elif self._provider == "openai":
-                response = self._client.chat.completions.create(
-                    model=self.config.model,
-                    max_tokens=self.config.max_tokens,
-                    temperature=self.config.temperature,
-                    messages=[
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": prompt},
-                    ],
-                )
-                response_text = response.choices[0].message.content or ""
-                if response.usage:
-                    self._total_tokens += response.usage.total_tokens
+                elif self._provider == "openai":
+                    response = self._client.chat.completions.create(
+                        model=self.config.model,
+                        max_tokens=self.config.max_tokens,
+                        temperature=self.config.temperature,
+                        messages=[
+                            {"role": "system", "content": system},
+                            {"role": "user", "content": prompt},
+                        ],
+                    )
+                    response_text = response.choices[0].message.content or ""
+                    if response.usage:
+                        input_tokens = response.usage.prompt_tokens
+                        output_tokens = response.usage.completion_tokens
 
-        except Exception as e:
-            logger.error("LLM call failed: %s", e)
+                last_error = None
+                break  # success
+
+            except Exception as e:
+                last_error = e
+                wait = 2 ** attempt
+                logger.warning("LLM call failed (attempt %d/%d): %s — retry in %ds",
+                               attempt + 1, self.config.max_retries + 1, e, wait)
+                if attempt < self.config.max_retries:
+                    time.sleep(wait)
+
+        if last_error is not None:
+            logger.error("LLM call failed permanently: %s", last_error)
             return None
 
         elapsed = time.time() - start
         self._call_count += 1
+        self._total_tokens += input_tokens + output_tokens
+        cost = self._estimate_cost(input_tokens, output_tokens)
+        self._total_cost += cost
+        self._month_cost_usd += cost
 
-        # Parse JSON from response
         result = self._parse_json_response(response_text)
-
         if result:
             self._cache[cache_key] = result
 
-        logger.info("LLM call: %.2fs, tokens=%d", elapsed, self._total_tokens)
+        logger.info("LLM call: %.2fs tokens=%d cost=$%.4f (month total=$%.2f)",
+                    elapsed, input_tokens + output_tokens, cost, self._month_cost_usd)
         return result
 
     def _parse_json_response(self, text: str) -> dict[str, Any] | None:
-        """Extract and parse JSON from LLM response."""
+        """Extract and parse JSON from LLM response.
+
+        Tries (in order):
+          1. Direct parse of the full text
+          2. Extract first fenced ```json ... ``` block
+          3. Brace-count scan to find first top-level balanced JSON object
+             (handles arbitrarily-nested objects, unlike a simple regex).
+        """
+        if not text:
+            return None
+
         # Try direct parse
         try:
             return json.loads(text)
         except json.JSONDecodeError:
             pass
 
-        # Try extracting JSON block
+        # Try extracting ```json ... ``` fenced block
         import re
-        json_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
-        if json_match:
+        fenced = re.search(r"```(?:json)?\s*(.*?)\s*```", text, re.DOTALL)
+        if fenced:
             try:
-                return json.loads(json_match.group(1))
+                return json.loads(fenced.group(1))
             except json.JSONDecodeError:
                 pass
 
-        # Try finding first { ... }
-        brace_match = re.search(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", text, re.DOTALL)
-        if brace_match:
+        # Brace counting: find first balanced {...} block, skipping over
+        # braces inside string literals.
+        def _scan_json(src: str) -> str | None:
+            in_str = False
+            escape = False
+            depth = 0
+            start = -1
+            for i, ch in enumerate(src):
+                if in_str:
+                    if escape:
+                        escape = False
+                    elif ch == "\\":
+                        escape = True
+                    elif ch == '"':
+                        in_str = False
+                    continue
+                if ch == '"':
+                    in_str = True
+                    continue
+                if ch == "{":
+                    if depth == 0:
+                        start = i
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0 and start >= 0:
+                        return src[start:i + 1]
+            return None
+
+        block = _scan_json(text)
+        if block:
             try:
-                return json.loads(brace_match.group())
+                return json.loads(block)
             except json.JSONDecodeError:
                 pass
 
@@ -312,6 +457,59 @@ class ResponseValidator:
 # ---------------------------------------------------------------------------
 # Main C5 Matcher
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Config helpers — easy API key injection
+# ---------------------------------------------------------------------------
+
+def llm_config_from_env(env_file: str | None = None) -> C5Config:
+    """Build a C5Config from environment variables or a .env file.
+
+    Supported variables:
+        LLM_PROVIDER       - "anthropic" | "openai" | "disabled" (default: anthropic)
+        LLM_MODEL          - model identifier
+        LLM_API_KEY        - explicit API key (overrides provider-specific)
+        ANTHROPIC_API_KEY  - Anthropic key (fallback)
+        OPENAI_API_KEY     - OpenAI key (fallback)
+        LLM_BASE_URL       - custom endpoint (proxies, Azure)
+        LLM_MAX_TOKENS     - integer
+        LLM_TEMPERATURE    - float
+        LLM_ENABLED        - "true"/"false"
+        LLM_MONTHLY_BUDGET - USD cap per month
+    """
+    import os
+
+    if env_file:
+        try:
+            for line in open(env_file):
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+        except FileNotFoundError:
+            logger.warning("env file %s not found", env_file)
+
+    cfg = C5Config()
+    cfg.provider = os.getenv("LLM_PROVIDER", cfg.provider)
+    cfg.model = os.getenv("LLM_MODEL", cfg.model)
+    cfg.api_key = (os.getenv("LLM_API_KEY")
+                   or os.getenv("ANTHROPIC_API_KEY")
+                   or os.getenv("OPENAI_API_KEY"))
+    cfg.base_url = os.getenv("LLM_BASE_URL") or None
+    cfg.organization = os.getenv("OPENAI_ORGANIZATION") or None
+
+    if v := os.getenv("LLM_MAX_TOKENS"):
+        cfg.max_tokens = int(v)
+    if v := os.getenv("LLM_TEMPERATURE"):
+        cfg.temperature = float(v)
+    if v := os.getenv("LLM_ENABLED"):
+        cfg.enabled = v.lower() in ("1", "true", "yes", "on")
+    if v := os.getenv("LLM_MONTHLY_BUDGET"):
+        cfg.monthly_budget_usd = float(v)
+
+    return cfg
+
 
 class LLMMatcher:
     """

@@ -148,10 +148,20 @@ class PaymentPreprocessor:
         # N002: Deaccentuation
         text = unidecode(text)
 
-        # N011: Strip bank prefixes (before N003 to preserve structure)
-        for prefix in self.config.bank_prefixes_to_strip:
-            if text.startswith(prefix.upper()):
-                text = text[len(prefix):].strip()
+        # N011: Strip bank prefixes (before N003 to preserve structure).
+        # Loop until stable: stripping one prefix can expose another
+        # (e.g. "VIREMENT RECU DE SEPA CREDIT TRANSFER FAC-001").
+        changed = True
+        max_iter = 5
+        while changed and max_iter > 0:
+            changed = False
+            max_iter -= 1
+            for prefix in self.config.bank_prefixes_to_strip:
+                up = prefix.upper()
+                if text.startswith(up):
+                    text = text[len(up):].strip()
+                    changed = True
+                    break
 
         # N003: Strip punctuation except digits/letters/spaces
         text = re.sub(r"[^A-Z0-9\s]", " ", text)
