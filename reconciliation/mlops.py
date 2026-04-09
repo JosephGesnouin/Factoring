@@ -117,27 +117,36 @@ class MLOpsPipeline:
         actual_invoices: list[Invoice],
         decision: str,
     ) -> None:
-        """Collect human feedback for model improvement."""
-        record = {
+        """Collect human feedback for model improvement.
+
+        Generates one feedback record per actual invoice (each carries its
+        own features), with deep copy semantics to avoid mutation bugs.
+        """
+        is_correct = (
+            predicted is not None
+            and {inv.reference for inv in predicted.invoices} == set(actual_invoice_refs)
+        )
+        base = {
             "payment_id": payment.id,
             "predicted_refs": [inv.reference for inv in predicted.invoices] if predicted else [],
             "predicted_confidence": predicted.confidence if predicted else 0.0,
-            "actual_refs": actual_invoice_refs,
+            "actual_refs": list(actual_invoice_refs),
             "decision": decision,
             "timestamp": datetime.now().isoformat(),
-            "is_correct": (
-                predicted is not None
-                and set(inv.reference for inv in predicted.invoices) == set(actual_invoice_refs)
-            ),
+            "is_correct": is_correct,
         }
 
-        # Generate features for training
         if actual_invoices:
             for inv in actual_invoices:
-                features = compute_features(payment, inv)
-                record["features"] = features
-                record["label"] = 1  # positive match
-                self._feedback_buffer.append(record.copy())
+                # Independent record per invoice so each has its own features.
+                record = dict(base)
+                record["features"] = compute_features(payment, inv)
+                record["invoice_ref"] = inv.reference
+                record["label"] = 1  # positive training sample
+                self._feedback_buffer.append(record)
+        else:
+            # No invoice context — still record the feedback for audit.
+            self._feedback_buffer.append(dict(base))
 
         # Check if we should trigger retraining
         if len(self._feedback_buffer) >= self.feedback_retrain_threshold:
@@ -265,22 +274,40 @@ class MLOpsPipeline:
 
     def compute_monitoring_metrics(
         self,
-        pipeline_metrics: dict[str, Any],
+        pipeline_metrics,  # PipelineMetrics dataclass (preferred) or dict
         review_queue: HumanReviewQueue,
     ) -> MonitoringMetrics:
-        """Compute all 13 monitoring metrics."""
+        """Compute all 13 monitoring metrics.
+
+        Accepts either a ``PipelineMetrics`` dataclass (preferred — raw
+        numeric fields) or a legacy dict. Previously this function tried
+        to use ``.get("avg_time_ms", 0)`` from the ``summary`` dict, which
+        returned a formatted string — silent type bug.
+        """
         metrics = MonitoringMetrics()
 
-        total = pipeline_metrics.get("total_payments", 0)
+        # Normalize input — accept both dataclass and dict
+        if hasattr(pipeline_metrics, "total_payments"):
+            total = pipeline_metrics.total_payments
+            matched = pipeline_metrics.matched_auto
+            avg_ms = pipeline_metrics.avg_processing_time_ms
+            by_layer = pipeline_metrics.by_layer
+        else:
+            total = pipeline_metrics.get("total_payments", 0)
+            matched = pipeline_metrics.get("matched_auto", 0)
+            # avg_time_ms in summary is a formatted string — reject it
+            raw_avg = pipeline_metrics.get("avg_processing_time_ms", 0.0)
+            avg_ms = float(raw_avg) if isinstance(raw_avg, (int, float)) else 0.0
+            by_layer = pipeline_metrics.get("by_layer", {})
+
         if total == 0:
             return metrics
 
-        metrics.auto_match_rate = pipeline_metrics.get("matched_auto", 0) / total
-        metrics.avg_processing_time_ms = pipeline_metrics.get("avg_time_ms", 0)
+        metrics.auto_match_rate = matched / total
+        metrics.avg_processing_time_ms = float(avg_ms)
         metrics.human_review_backlog = review_queue.queue_size
 
         # Layer distribution
-        by_layer = pipeline_metrics.get("by_layer", {})
         for layer, count in by_layer.items():
             metrics.layer_distribution[layer] = count / total
 

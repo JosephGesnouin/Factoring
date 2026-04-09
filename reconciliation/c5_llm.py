@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -342,7 +343,6 @@ class LLMClient:
             pass
 
         # Try extracting ```json ... ``` fenced block
-        import re
         fenced = re.search(r"```(?:json)?\s*(.*?)\s*```", text, re.DOTALL)
         if fenced:
             try:

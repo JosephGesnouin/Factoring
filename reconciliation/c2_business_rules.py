@@ -19,10 +19,8 @@ Rules:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 from datetime import date, timedelta
 from itertools import combinations
-from typing import Any
 
 from .config import C2Config
 from .models import (
@@ -36,16 +34,6 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class ToleranceMatch:
-    invoice: Invoice
-    tolerance_type: str
-    rule_id: str
-    confidence: float
-    expected_amount: float
-    flags: list[str]
 
 
 class BusinessRuleMatcher:

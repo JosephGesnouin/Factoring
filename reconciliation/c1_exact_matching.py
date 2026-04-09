@@ -15,10 +15,9 @@ Rules:
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import re
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from typing import Any
 
 from .config import C1Config

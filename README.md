@@ -137,7 +137,8 @@ Plus : subset sum multi-factures, patterns temporels, detection doublons, acompt
 | LCS Ratio | 10% | Plus longue sous-sequence |
 | Numeric Ref Similarity | 15% | Compare les parties numeriques |
 
-Plus : NER custom (10 entites), TF-IDF character n-grams, embeddings semantiques.
+Plus : NER custom (10 entites) et TF-IDF character n-grams.
+(Les embeddings semantiques via sentence-transformers ont ete desactives.)
 
 **Fichier :** `reconciliation/c3_nlp_fuzzy.py`
 

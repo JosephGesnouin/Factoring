@@ -51,9 +51,9 @@ Toutes les constantes et seuils sont regroupes dans des dataclasses configurable
 | `C0Config` | Carte d'abreviations, prefixes bancaires a supprimer, padding numerique |
 | `C1Config` | Fenetre temporelle (180j), seuil IBAN unique (120j) |
 | `C2Config` | Tolerances SWIFT (35EUR), SEPA OUR (15EUR), arrondi (1EUR), % acomptes |
-| `C3Config` | Seuil fuzzy (0.75), modele embedding, seuil similarite (0.80) |
+| `C3Config` | Seuil fuzzy (0.75), ngram range TF-IDF, seuil NER |
 | `C4Config` | Seuil confiance ML (0.85), poids ensemble, intervalle retraining |
-| `C5Config` | Modele LLM, temperature, budget par paiement, TTL cache |
+| `C5Config` | Provider, api_key, model, temperature, budget mensuel (USD), kill switch |
 | `C6Config` | Taille max file, poids priorite, SLA (24h) |
 | `OrchestratorConfig` | Seuil auto-match (0.90), timeouts par couche |
 

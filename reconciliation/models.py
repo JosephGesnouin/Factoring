@@ -36,7 +36,6 @@ class MatchMethod(str, Enum):
     # C3 - NLP/Fuzzy
     C3_FUZZY = "C3_FUZZY"
     C3_NER = "C3_NER"
-    C3_EMBEDDING = "C3_EMBEDDING"
     C3_NLP_COMBINED = "C3_NLP_COMBINED"
     C3_TFIDF = "C3_TFIDF"
     # C4 - ML
@@ -162,7 +161,14 @@ class Payment:
 
     @property
     def fingerprint(self) -> str:
-        raw = f"{self.iban_source}{self.amount}{self.date}{self.label_normalized}"
+        """SHA-256 fingerprint for deduplication.
+
+        Uses fixed ``{:.2f}`` formatting for amount and ISO date format to
+        avoid locale-dependent or repr-dependent drift between runs.
+        """
+        amt = f"{self.amount:.2f}"
+        dt = self.date.isoformat() if self.date else ""
+        raw = f"{self.iban_source}|{amt}|{dt}|{self.label_normalized}"
         return hashlib.sha256(raw.encode()).hexdigest()
 
 

@@ -28,12 +28,20 @@ config.c2.fx_tolerance_pct    # 0.01 — tolerance conversion devise (1%)
 config.c2.subset_sum_max_invoices  # 15 — max factures pour subset sum
 
 # --- Seuils de la couche C3 ---
-config.c3.fuzzy_min_score                 # 0.75 — seuil min fuzzy matching
-config.c3.embedding_similarity_threshold  # 0.80 — seuil embeddings
+config.c3.fuzzy_min_score        # 0.75 — seuil min fuzzy matching
+config.c3.tfidf_ngram_range      # (2, 4) — n-grams TF-IDF
+config.c3.ner_confidence_threshold  # 0.70
 
 # --- Seuils de la couche C4 ---
 config.c4.confidence_threshold  # 0.85 — seuil confiance ML
 config.c4.drift_psi_threshold   # 0.2 — seuil PSI pour retraining
+
+# --- LLM C5 (api key injection) ---
+config.c5.provider      # "anthropic" | "openai" | "disabled"
+config.c5.api_key       # your API key — overrides env var
+config.c5.model         # model identifier
+config.c5.enabled       # kill switch
+config.c5.monthly_budget_usd  # budget cap, USD
 
 # --- Orchestrateur ---
 config.orchestrator.auto_match_confidence_threshold  # 0.90 — seuil auto-match

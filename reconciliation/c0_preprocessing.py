@@ -40,7 +40,9 @@ REF_PATTERNS = [
     # Generic structured ref: 2-4 alpha + separator + digits
     re.compile(r"\b([A-Z]{2,4}[\-/]\d{4}[\-/]\d{3,8})\b"),
     # Pure numeric refs (6-10 digits, likely invoice numbers)
-    re.compile(r"\b(\d{6,10})\b"),
+    # Guard: not preceded by alpha (IBAN prefix) and not 14-18 digits
+    # long (bank card / phone).
+    re.compile(r"(?<![A-Za-z])(?<!\d)(\d{6,10})(?!\d)"),
     # BL refs
     re.compile(r"\b(BL[\s\-/]*\d{3,10})\b", re.IGNORECASE),
     # PO/CMD refs

@@ -21,8 +21,18 @@ from typing import Any
 
 import numpy as np
 
+from .c3_nlp_fuzzy import (
+    _jaro_winkler,
+    _levenshtein_ratio,
+    _ngram_similarity,
+    _numeric_ref_similarity,
+    _partial_ratio,
+    _token_set_ratio,
+    compute_composite_fuzzy_score,
+)
 from .config import C4Config
 from .models import Invoice, MatchMethod, MatchResult, Payment
+from .utils import normalize_ref
 
 logger = logging.getLogger(__name__)
 
@@ -62,24 +72,14 @@ def compute_features(payment: Payment, invoice: Invoice) -> dict[str, float]:
     )
 
     # ===== G2: Reference/Text Features (12) =====
-    from .c3_nlp_fuzzy import (
-        _jaro_winkler,
-        _levenshtein_ratio,
-        _ngram_similarity,
-        _numeric_ref_similarity,
-        _partial_ratio,
-        _token_set_ratio,
-        compute_composite_fuzzy_score,
-    )
-
-    inv_ref_norm = _normalize_for_features(invoice.reference)
+    inv_ref_norm = normalize_ref(invoice.reference)
     best_ref_score = 0.0
     best_partial = 0.0
     best_numeric = 0.0
     best_jw = 0.0
 
     for pref in payment.signals.raw_refs:
-        pref_norm = _normalize_for_features(pref)
+        pref_norm = normalize_ref(pref)
         best_ref_score = max(best_ref_score, compute_composite_fuzzy_score(pref_norm, inv_ref_norm))
         best_partial = max(best_partial, _partial_ratio(pref_norm, inv_ref_norm))
         best_numeric = max(best_numeric, _numeric_ref_similarity(pref_norm, inv_ref_norm))
@@ -153,9 +153,8 @@ def compute_features(payment: Payment, invoice: Invoice) -> dict[str, float]:
     return features
 
 
-def _normalize_for_features(ref: str) -> str:
-    from .utils import normalize_ref
-    return normalize_ref(ref)
+# Backwards-compat alias (was used by c4_ml features computation).
+_normalize_for_features = normalize_ref
 
 
 # ---------------------------------------------------------------------------
@@ -210,17 +209,19 @@ class EnsembleModel:
             logger.error("ML dependencies not available: %s", e)
             return {"error": str(e)}
 
-        # Train base models
+        # Train base models (random_state for reproducibility)
         self._lgb_model = LGBMClassifier(
             n_estimators=200, learning_rate=0.05, max_depth=6,
             num_leaves=31, min_child_samples=20, verbose=-1,
+            random_state=42,
         )
         self._xgb_model = XGBClassifier(
             n_estimators=200, learning_rate=0.05, max_depth=6,
-            min_child_weight=5, verbosity=0,
+            min_child_weight=5, verbosity=0, random_state=42,
         )
         self._rf_model = RandomForestClassifier(
             n_estimators=150, max_depth=8, min_samples_leaf=10, n_jobs=-1,
+            random_state=42,
         )
 
         self._lgb_model.fit(X, y)
@@ -458,34 +459,40 @@ class MLMatcher:
 
     def match(self, payment: Payment, open_invoices: list[Invoice]) -> MatchResult | None:
         """Score all candidates and return best match above threshold."""
-        if not self._ensemble._is_trained:
-            logger.warning("C4 model not trained, skipping")
+        if not self.is_trained:
+            logger.debug("C4 model not trained, skipping")
             return None
 
         if not open_invoices:
             return None
 
-        # Compute features for all candidates
-        candidates = []
-        for inv in open_invoices:
-            if payment.debtor_id and inv.debtor_id != payment.debtor_id:
-                continue
-            feats = compute_features(payment, inv)
-            candidates.append((inv, feats))
+        # Pre-filter candidates (debtor first, then cap to avoid runaway
+        # ensemble inference on large portfolios with unknown debtor)
+        if payment.debtor_id:
+            candidate_invs = [inv for inv in open_invoices if inv.debtor_id == payment.debtor_id]
+        else:
+            # Unknown debtor: score top-100 by amount proximity to keep cost bounded
+            sorted_invs = sorted(
+                open_invoices,
+                key=lambda i: abs(i.amount - payment.amount),
+            )
+            candidate_invs = sorted_invs[:100]
 
-        if not candidates:
+        if not candidate_invs:
             return None
 
-        # Build feature matrix
-        X = np.array([
-            [f.get(name, 0.0) for name in EnsembleModel.FEATURE_NAMES]
-            for _, f in candidates
-        ])
+        # Compute features and build feature matrix
+        try:
+            candidates = [(inv, compute_features(payment, inv)) for inv in candidate_invs]
+            X = np.array([
+                [f.get(name, 0.0) for name in EnsembleModel.FEATURE_NAMES]
+                for _, f in candidates
+            ])
+            probas = self._ensemble.predict_proba(X)
+        except (RuntimeError, ValueError) as e:
+            logger.error("C4 inference failed: %s", e)
+            return None
 
-        # Predict
-        probas = self._ensemble.predict_proba(X)
-
-        # Find best
         best_idx = int(np.argmax(probas))
         best_proba = float(probas[best_idx])
         best_inv = candidates[best_idx][0]

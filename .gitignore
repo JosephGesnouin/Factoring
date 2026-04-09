@@ -5,5 +5,20 @@ __pycache__/
 dist/
 build/
 .pytest_cache/
+.coverage
+htmlcov/
 models/*.pkl
 .env
+
+# Generated artifacts
+app/demo_reconciliation.html
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db

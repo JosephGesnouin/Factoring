@@ -70,48 +70,89 @@ class ReviewItem:
 class HumanReviewQueue:
     """
     Layer C6: Intelligent human review queue.
+
     Prioritizes items by amount, age, confidence gap, and debtor risk.
+
+    Internally backed by a heap keyed on ``-priority`` for O(log n) insert,
+    plus a dict index for O(1) lookup by payment_id. Tracks assignments
+    so each item is only served once per reviewer.
     """
 
     def __init__(self, config: C6Config | None = None):
+        import heapq
+        self._heapq = heapq
         self.config = config or C6Config()
-        self._queue: list[ReviewItem] = []
+        # Heap entries: (-priority, counter, payment_id). counter breaks ties
+        # to avoid comparing ReviewItem objects.
+        self._heap: list[tuple[float, int, str]] = []
+        self._items: dict[str, ReviewItem] = {}  # payment_id → item
+        self._assigned: set[str] = set()         # payment_ids currently assigned
         self._completed: list[ReviewItem] = []
+        self._counter = 0
+
+    @property
+    def _queue(self) -> list[ReviewItem]:
+        """Legacy compatibility: returns items sorted by priority desc.
+
+        Use ``size`` / ``get_next`` for O(1) access.
+        """
+        return sorted(self._items.values(), key=lambda x: -x.priority_score)
 
     def enqueue(self, context: ReconciliationContext) -> ReviewItem:
-        """Add an unresolved payment to the review queue."""
+        """Add an unresolved payment to the review queue (O(log n))."""
         item = ReviewItem(context=context)
         item.priority_score = self._compute_priority(item)
         item.sla_deadline = (
             item.created_at + timedelta(hours=self.config.sla_hours)
         ) if self.config.sla_hours > 0 else None
 
-        self._queue.append(item)
-        self._queue.sort(key=lambda x: x.priority_score, reverse=True)
+        self._items[item.payment.id] = item
+        self._counter += 1
+        self._heapq.heappush(
+            self._heap, (-item.priority_score, self._counter, item.payment.id)
+        )
 
         logger.info(
             "C6 enqueue: payment=%s priority=%.2f queue_size=%d",
-            context.payment.id, item.priority_score, len(self._queue),
+            context.payment.id, item.priority_score, len(self._items),
         )
         return item
 
     def get_next(self, reviewer_id: str | None = None) -> ReviewItem | None:
-        """Get highest priority unassigned item."""
-        for item in self._queue:
-            if item.assigned_to is None or item.assigned_to == reviewer_id:
-                item.assigned_to = reviewer_id
-                return item
+        """Pop highest-priority unassigned item and mark it assigned."""
+        while self._heap:
+            neg_prio, _, pid = self._heapq.heappop(self._heap)
+            item = self._items.get(pid)
+            if item is None:
+                continue  # already removed
+            if pid in self._assigned:
+                continue
+            item.assigned_to = reviewer_id
+            self._assigned.add(pid)
+            return item
         return None
+
+    def release(self, payment_id: str) -> None:
+        """Release an assigned item back to the queue (e.g. reviewer timeout)."""
+        if payment_id in self._assigned:
+            self._assigned.discard(payment_id)
+            item = self._items.get(payment_id)
+            if item:
+                item.assigned_to = None
+                self._counter += 1
+                self._heapq.heappush(
+                    self._heap, (-item.priority_score, self._counter, payment_id)
+                )
 
     def submit_feedback(self, payment_id: str, feedback: ReviewFeedback) -> MatchResult | None:
         """Process reviewer feedback and generate final match result."""
-        item = next((i for i in self._queue if i.payment.id == payment_id), None)
+        item = self._items.pop(payment_id, None)
+        self._assigned.discard(payment_id)
         if not item:
             logger.warning("Payment %s not found in review queue", payment_id)
             return None
 
         item.feedback = feedback
-        self._queue.remove(item)
         self._completed.append(item)
 
         if feedback.decision == ReviewDecision.APPROVE and item.best_candidate:
@@ -200,13 +241,13 @@ class HumanReviewQueue:
 
     @property
     def queue_size(self) -> int:
-        return len(self._queue)
+        return len(self._items)
 
     @property
     def stats(self) -> dict[str, Any]:
         total_completed = len(self._completed)
         if total_completed == 0:
-            return {"queue_size": len(self._queue), "completed": 0}
+            return {"queue_size": len(self._items), "completed": 0}
 
         approved = sum(1 for i in self._completed if i.feedback and i.feedback.decision == ReviewDecision.APPROVE)
         corrected = sum(1 for i in self._completed if i.feedback and i.feedback.decision == ReviewDecision.CORRECT)
@@ -216,7 +257,8 @@ class HumanReviewQueue:
         ) / max(total_completed, 1)
 
         return {
-            "queue_size": len(self._queue),
+            "queue_size": len(self._items),
+            "assigned": len(self._assigned),
             "completed": total_completed,
             "approved": approved,
             "corrected": corrected,

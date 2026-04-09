@@ -184,16 +184,41 @@ class ReconciliationOrchestrator:
 
         return ctx
 
-    def process_batch(self, payments: list[Payment], open_invoices: list[Invoice]) -> list[ReconciliationContext]:
-        """Process a batch of payments."""
+    def process_batch(
+        self,
+        payments: list[Payment],
+        open_invoices: list[Invoice],
+        rebuild_every: int = 100,
+    ) -> list[ReconciliationContext]:
+        """Process a batch of payments.
+
+        Rebuilds C1/C3 indexes every ``rebuild_every`` matches (default 100)
+        to ensure consumed invoices are no longer visible to matchers.
+        Without this rebuild, the hash index and TF-IDF matrix still
+        contain already-matched invoices → stale lookups.
+        """
         results = []
+        matches_since_rebuild = 0
+        dirty = False
         for payment in payments:
             ctx = self.process_payment(payment, open_invoices)
             results.append(ctx)
-            # Remove matched invoices from open set for subsequent payments
             if ctx.final_match:
                 matched_ids = {inv.id for inv in ctx.final_match.invoices}
                 open_invoices = [inv for inv in open_invoices if inv.id not in matched_ids]
+                matches_since_rebuild += 1
+                dirty = True
+                if matches_since_rebuild >= rebuild_every:
+                    self._exact_matcher.build_index(open_invoices)
+                    self._nlp_matcher.build_index(open_invoices)
+                    matches_since_rebuild = 0
+                    dirty = False
+
+        # Final rebuild so subsequent calls see fresh state
+        if dirty:
+            self._exact_matcher.build_index(open_invoices)
+            self._nlp_matcher.build_index(open_invoices)
+
         return results
 
     @property
