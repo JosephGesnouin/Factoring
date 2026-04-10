@@ -513,3 +513,49 @@ class MLMatcher:
             )
 
         return None
+
+    def rank_candidates(
+        self, payment: Payment, open_invoices: list[Invoice], top_k: int = 10
+    ) -> list[dict]:
+        """Score ALL candidates and return top-K ranked by ML probability.
+
+        Unlike ``match()`` which only returns if above threshold, this method
+        always returns scored candidates — useful for C6 recommendations.
+
+        Returns:
+            List of dicts sorted by descending probability:
+            [{"invoice": Invoice, "proba": float, "rank": int}, ...]
+        """
+        if not self.is_trained or not open_invoices:
+            return []
+
+        if payment.debtor_id:
+            candidate_invs = [inv for inv in open_invoices if inv.debtor_id == payment.debtor_id]
+        else:
+            sorted_invs = sorted(open_invoices, key=lambda i: abs(i.amount - payment.amount))
+            candidate_invs = sorted_invs[:100]
+
+        if not candidate_invs:
+            return []
+
+        try:
+            candidates = [(inv, compute_features(payment, inv)) for inv in candidate_invs]
+            X = np.array([
+                [f.get(name, 0.0) for name in EnsembleModel.FEATURE_NAMES]
+                for _, f in candidates
+            ])
+            probas = self._ensemble.predict_proba(X)
+        except (RuntimeError, ValueError) as e:
+            logger.error("C4 rank failed: %s", e)
+            return []
+
+        # Sort by probability descending
+        ranked = sorted(
+            [(candidates[i][0], float(probas[i])) for i in range(len(candidates))],
+            key=lambda x: -x[1],
+        )
+
+        return [
+            {"invoice": inv, "proba": proba, "rank": i + 1}
+            for i, (inv, proba) in enumerate(ranked[:top_k])
+        ]

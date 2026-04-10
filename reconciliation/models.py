@@ -214,6 +214,9 @@ class ReconciliationContext:
     open_credits: list[CreditNote] = field(default_factory=list)
     candidate_matches: list[MatchResult] = field(default_factory=list)
     final_match: MatchResult | None = None
+    # C4 ML rankings — always populated when C4 is trained, even without auto-match.
+    # List of {"invoice": Invoice, "proba": float, "rank": int}
+    ml_rankings: list[dict[str, Any]] = field(default_factory=list)
     layers_attempted: list[int] = field(default_factory=list)
     processing_log: list[dict[str, Any]] = field(default_factory=list)
     started_at: datetime | None = None

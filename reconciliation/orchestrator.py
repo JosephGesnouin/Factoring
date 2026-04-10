@@ -159,11 +159,15 @@ class ReconciliationOrchestrator:
             # ── C4: ML ──
             # C4 uses its own confidence_threshold (default 0.85) since ML scores
             # are calibrated differently from deterministic rules.
+            # Even when C4 can't auto-match, it always ranks candidates for C6 reco.
             if self._ml_matcher.is_trained:
                 result = self._run_layer(ctx, 4, lambda: self._ml_matcher.match(payment, open_invoices))
                 c4_threshold = self.config.c4.confidence_threshold
                 if result and result.confidence >= c4_threshold:
                     return self._finalize(ctx, result, start_time)
+
+                # Always compute ML rankings for C6 recommendations
+                ctx.ml_rankings = self._ml_matcher.rank_candidates(payment, open_invoices, top_k=5)
             else:
                 ctx.layers_attempted.append(4)
                 ctx.processing_log.append({
