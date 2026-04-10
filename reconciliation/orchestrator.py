@@ -20,6 +20,7 @@ from .c4_ml import MLMatcher
 from .c5_llm import LLMMatcher
 from .c6_human_review import HumanReviewQueue
 from .config import ReconciliationConfig
+from .debtor_profiler import DebtorProfiler
 from .models import (
     CreditNote,
     Debtor,
@@ -85,6 +86,7 @@ class ReconciliationOrchestrator:
         self._ml_matcher = MLMatcher(self.config.c4)
         self._llm_matcher = LLMMatcher(self.config.c5)
         self._review_queue = HumanReviewQueue(self.config.c6)
+        self._debtor_profiler = DebtorProfiler()
         self._metrics = PipelineMetrics()
         # Use indexed duplicate detection (O(1) lookup) instead of linear scan.
         self._duplicate_index = DuplicateIndex(max_size=50_000)
@@ -242,6 +244,10 @@ class ReconciliationOrchestrator:
         return self._metrics
 
     @property
+    def debtor_profiler(self) -> DebtorProfiler:
+        return self._debtor_profiler
+
+    @property
     def review_queue(self) -> HumanReviewQueue:
         return self._review_queue
 
@@ -285,10 +291,18 @@ class ReconciliationOrchestrator:
         elapsed = (time.time() - start) * 1000
 
         if result:
-            # Ensure layer attribute is set (fixes metrics bug for C3/C4/C5
-            # matchers that don't set it themselves).
             result.layer = layer
             result.processing_time_ms = elapsed
+
+            # Apply debtor behavior boost/penalty to confidence
+            boost = self._debtor_profiler.confidence_boost(ctx.payment, result)
+            if boost != 0.0:
+                result.confidence = max(0.0, min(1.0, result.confidence + boost))
+                if boost > 0:
+                    result.flags.append(f"DEBTOR_BOOST_{boost:+.2f}")
+                else:
+                    result.flags.append(f"DEBTOR_PENALTY_{boost:+.2f}")
+
             ctx.candidate_matches.append(result)
             ctx.processing_log.append({
                 "layer": layer,

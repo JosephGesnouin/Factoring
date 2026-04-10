@@ -556,12 +556,31 @@ def generate_all(seed=42, months=range(1,13), target_payments=10000):
     open_inv = list(invoices)
     results = []
     t0 = time.time()
-    for payment in payments:
+
+    # Process in two phases: first 1/3 to learn debtor profiles, then the rest with boosting
+    split = len(payments) // 3
+
+    # Phase 1: Process first batch (learning phase)
+    for payment in payments[:split]:
         ctx = orch.process_payment(payment, open_inv)
         results.append(ctx)
         if ctx.final_match:
             mids = {inv.id for inv in ctx.final_match.invoices}
             open_inv = [inv for inv in open_inv if inv.id not in mids]
+
+    # Learn debtor behaviors from Phase 1 results
+    orch.debtor_profiler.learn(results)
+    n_profiles = len(orch.debtor_profiler.profiles)
+    print(f"  Debtor profiler: learned {n_profiles} profiles from {split} payments")
+
+    # Phase 2: Process remaining with debtor behavior boosting active
+    for payment in payments[split:]:
+        ctx = orch.process_payment(payment, open_inv)
+        results.append(ctx)
+        if ctx.final_match:
+            mids = {inv.id for inv in ctx.final_match.invoices}
+            open_inv = [inv for inv in open_inv if inv.id not in mids]
+
     wall = time.time() - t0
     print(f"  Done in {wall:.1f}s ({len(payments)/wall:.0f} payments/s)")
 
@@ -606,4 +625,5 @@ def generate_all(seed=42, months=range(1,13), target_payments=10000):
         "n_invoices": len(invoices), "n_payments": len(payments),
         "n_debtors": len(debtors), "credit_notes": credit_notes,
         "ground_truth": ground_truth,
+        "debtor_profiles": {k: v.to_dict() for k, v in orch.debtor_profiler.profiles.items()},
     }

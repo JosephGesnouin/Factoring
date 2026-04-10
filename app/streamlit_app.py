@@ -181,6 +181,7 @@ with st.sidebar:
         "Paiements par Couche",
         "Revue Humaine",
         "Mapping Complet",
+        "Profils Debiteurs IA",
         "Deep Dive",
     ], label_visibility="collapsed")
     st.divider()
@@ -1094,6 +1095,120 @@ elif page == "Mapping Complet":
     st.markdown('<div class="section-h">Export</div>', unsafe_allow_html=True)
     csv = show.to_csv(index=False)
     st.download_button("Telecharger le mapping complet (CSV)", csv, "mapping_complet.csv", "text/csv")
+
+
+# =====================================================================
+# PAGE — PROFILS DEBITEURS IA
+# =====================================================================
+elif page == "Profils Debiteurs IA":
+    st.markdown("""
+    <div class="hero">
+        <h1>Profils Debiteurs IA</h1>
+        <div class="sub">Comportements appris automatiquement par debiteur : timing, montants, methodes, anomalies</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    profiles = data.get("debtor_profiles", {})
+
+    if not profiles:
+        st.warning("Aucun profil disponible. Les profils sont appris lors de la simulation.")
+    else:
+        st.markdown(f"""
+        <div class="info-box">
+            <div class="icon" style="background:#8b5cf6">AI</div>
+            <div><b>{len(profiles)} profils appris</b> a partir du premier tiers des paiements.
+            Chaque profil capture : jour de paiement typique, delai moyen, montant habituel,
+            methode preferee, tendance multi-factures, et taux d'automatisation.</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Summary table
+        prof_rows = []
+        for did, p in sorted(profiles.items()):
+            prof_rows.append({
+                "Debiteur": p["debtor_name"][:30] if p["debtor_name"] else did,
+                "Paiements": p["n_payments"],
+                "Montant moy.": f"{p['avg_amount']:,.0f}",
+                "Delai moy.": f"{p['avg_delay_days']}j",
+                "Jours typiques": ", ".join(str(d) for d in p["typical_pay_days"]) or "variable",
+                "Regularite": f"{p['pay_day_regularity']*100:.0f}%",
+                "Inv./paiement": f"{p['avg_invoices_per_payment']}",
+                "Multi-fact.": f"{p['pct_multi_invoice']}%",
+                "Methode pref.": p["preferred_method"][:18],
+                "Avec ref": f"{p['pct_with_ref']}%",
+                "Taux auto": f"{p['auto_rate']}%",
+            })
+        prof_df = pd.DataFrame(prof_rows)
+        st.dataframe(prof_df, use_container_width=True, height=500, hide_index=True)
+
+        # Detailed profile for selected debtor
+        st.markdown('<div class="section-h">Detail d\'un debiteur</div>', unsafe_allow_html=True)
+        sel_did = st.selectbox("Selectionner", sorted(profiles.keys()),
+            format_func=lambda d: f"{d} — {profiles[d]['debtor_name'][:30]}")
+        p = profiles[sel_did]
+
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Paiements analyses", p["n_payments"])
+        with col2:
+            auto_color = "normal" if p["auto_rate"] >= 80 else "inverse"
+            st.metric("Taux auto", f"{p['auto_rate']}%")
+        with col3:
+            st.metric("Delai moyen", f"{p['avg_delay_days']}j")
+        with col4:
+            st.metric("Inv./paiement", f"{p['avg_invoices_per_payment']}")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("**Distribution des methodes**")
+            if p["method_distribution"]:
+                meth_df = pd.DataFrame([
+                    {"Methode": k, "Pourcentage": v}
+                    for k, v in sorted(p["method_distribution"].items(), key=lambda x: -x[1])
+                ])
+                fig = px.bar(meth_df, x="Methode", y="Pourcentage", color_discrete_sequence=[C_INDIGO])
+                fig.update_layout(height=300, **PLOTLY_LAYOUT)
+                st.plotly_chart(fig, use_container_width=True)
+
+        with col2:
+            st.markdown("**Distribution par couche**")
+            if p["layer_distribution"]:
+                layer_df = pd.DataFrame([
+                    {"Couche": k, "Pourcentage": v}
+                    for k, v in p["layer_distribution"].items()
+                ])
+                fig = px.pie(layer_df, values="Pourcentage", names="Couche",
+                            color="Couche", color_discrete_map={"C1":C_GREEN,"C2":C_YELLOW,"C3":C_CYAN,"C6":C_RED},
+                            hole=0.4)
+                fig.update_layout(height=300, **PLOTLY_LAYOUT)
+                st.plotly_chart(fig, use_container_width=True)
+
+        # Behavioral insights
+        st.markdown("**Insights comportementaux**")
+        insights = []
+        if p["typical_pay_days"]:
+            insights.append(f"Paie typiquement le **{', '.join(str(d) for d in p['typical_pay_days'])}** du mois "
+                          f"(regularite {p['pay_day_regularity']*100:.0f}%)")
+        if p["avg_invoices_per_payment"] > 1.5:
+            insights.append(f"Tend a **grouper ses paiements** ({p['avg_invoices_per_payment']:.1f} factures/paiement en moyenne)")
+        if p["pct_with_discount"] > 5:
+            insights.append(f"Prend souvent un **escompte** ({p['pct_with_discount']:.0f}% des paiements)")
+        if p["pct_with_retention"] > 5:
+            insights.append(f"Applique une **retenue de garantie** ({p['pct_with_retention']:.0f}% des paiements)")
+        if p["pct_with_ref"] > 80:
+            insights.append(f"Reference toujours les factures dans ses libelles ({p['pct_with_ref']:.0f}%)")
+        elif p["pct_with_ref"] < 30:
+            insights.append(f"**Rarement de reference** dans les libelles ({p['pct_with_ref']:.0f}%) — labels souvent cryptiques")
+        if p["avg_delay_days"] > 15:
+            insights.append(f"**Payeur en retard** : delai moyen {p['avg_delay_days']:.0f} jours apres echeance")
+        elif p["avg_delay_days"] < 3:
+            insights.append(f"**Payeur ponctuel** : delai moyen {p['avg_delay_days']:.0f} jours")
+
+        for insight in insights:
+            st.markdown(f"- {insight}")
+
+        if not insights:
+            st.info("Pas assez de donnees pour generer des insights.")
 
 
 # =====================================================================
