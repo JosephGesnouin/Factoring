@@ -176,6 +176,8 @@ with st.sidebar:
         "Architecture",
         "Simulation Live",
         "Analyse Debiteurs",
+        "Paiements par Couche",
+        "Revue Humaine",
         "Deep Dive",
     ], label_visibility="collapsed")
     st.divider()
@@ -470,7 +472,306 @@ elif page == "Analyse Debiteurs":
 
 
 # =====================================================================
-# PAGE 5 — DEEP DIVE
+# PAGE 5 — PAIEMENTS PAR COUCHE (deep dive de chaque couche)
+# =====================================================================
+elif page == "Paiements par Couche":
+    st.markdown("""
+    <div class="hero">
+        <h1>Paiements par Couche</h1>
+        <div class="sub">Explorez tous les paiements attribues a chaque couche du pipeline</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Layer selector
+    selected_layer = st.selectbox("Selectionner une couche", ["C1", "C2", "C3", "C6"],
+        format_func=lambda x: {"C1":"C1 — Matching Exact & Deterministe",
+                                "C2":"C2 — Regles Metier Avancees",
+                                "C3":"C3 — NLP / Fuzzy Matching",
+                                "C6":"C6 — Revue Humaine (non attribues)"}.get(x, x))
+
+    layer_df = df[df["layer_name"] == selected_layer]
+    layer_count = len(layer_df)
+    layer_pct = layer_count / len(df) * 100
+
+    # KPIs for this layer
+    badge_color = {"C1":C_GREEN,"C2":C_YELLOW,"C3":C_CYAN,"C6":C_RED}.get(selected_layer, C_INDIGO)
+    avg_conf = layer_df["confidence"].mean() if layer_count > 0 else 0
+
+    st.markdown(f"""
+    <div class="kpi-grid">
+        <div class="kpi-card" style="border-bottom:3px solid {badge_color}">
+            <div class="value" style="color:{badge_color}">{layer_count:,}</div>
+            <div class="label">Paiements {selected_layer}</div>
+        </div>
+        <div class="kpi-card">
+            <div class="value">{layer_pct:.1f}%</div>
+            <div class="label">du total</div>
+        </div>
+        <div class="kpi-card">
+            <div class="value">{avg_conf:.0%}</div>
+            <div class="label">Confiance moyenne</div>
+        </div>
+        <div class="kpi-card">
+            <div class="value">{layer_df['amount'].sum()/1e6:.1f}M</div>
+            <div class="label">Volume EUR</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Methods breakdown for this layer
+    if selected_layer != "C6":
+        st.markdown('<div class="section-h">Methodes utilisees</div>', unsafe_allow_html=True)
+        meth = layer_df.groupby("method").size().reset_index(name="count").sort_values("count", ascending=False)
+        fig = px.bar(meth, x="method", y="count", color_discrete_sequence=[badge_color])
+        fig.update_layout(height=300, xaxis_title="", yaxis_title="Paiements", **PLOTLY_LAYOUT)
+        st.plotly_chart(fig, use_container_width=True)
+
+    # Flags breakdown
+    if selected_layer in ("C2", "C3"):
+        all_flags = []
+        for f in layer_df["flags"].dropna():
+            if f:
+                all_flags.extend([x.strip() for x in f.split(",")])
+        if all_flags:
+            st.markdown('<div class="section-h">Flags detectes</div>', unsafe_allow_html=True)
+            flag_counts = pd.Series(all_flags).value_counts().reset_index()
+            flag_counts.columns = ["flag", "count"]
+            fig = px.bar(flag_counts.head(15), x="flag", y="count", color_discrete_sequence=[C_YELLOW])
+            fig.update_layout(height=280, xaxis_title="", yaxis_title="", **PLOTLY_LAYOUT)
+            st.plotly_chart(fig, use_container_width=True)
+
+    # Full table
+    st.markdown(f'<div class="section-h">Tous les paiements {selected_layer} ({layer_count:,})</div>',
+                unsafe_allow_html=True)
+
+    display_cols = ["payment_id","date","amount","debtor_name","label","method","confidence","flags","invoices_matched"]
+    show_df = layer_df[display_cols].copy()
+    show_df["amount"] = show_df["amount"].apply(lambda x: f"{x:,.2f}")
+    show_df["confidence"] = show_df["confidence"].apply(lambda x: f"{x:.0%}" if x > 0 else "---")
+    show_df.columns = ["ID","Date","Montant","Debiteur","Libelle","Methode","Conf.","Flags","Factures matchees"]
+
+    st.dataframe(show_df, use_container_width=True, height=600, hide_index=True)
+
+    # Click to deep-dive
+    st.markdown('<div class="section-h">Deep dive un paiement</div>', unsafe_allow_html=True)
+    if layer_count > 0:
+        sel = st.selectbox("Choisir un paiement", layer_df["payment_id"].tolist()[:200])
+        row = df[df["payment_id"] == sel].iloc[0]
+        ctx = next((r for r in data["results"] if r.payment.id == sel), None)
+
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            st.markdown(f"""
+            <div class="deep-card">
+                <div class="deep-meta">
+                    <span><b>Montant :</b> {row['amount']:,.2f} EUR</span>
+                    <span><b>Date :</b> {row['date']}</span>
+                    <span><b>Debiteur :</b> {row['debtor_name']}</span>
+                </div>
+                <div class="deep-label"><b>Libelle :</b><br><code>{row['label'] if row['label'] else '(vide)'}</code></div>
+            </div>
+            """, unsafe_allow_html=True)
+        with col2:
+            badge_cls = {"C1":"c1","C2":"c2","C3":"c3","C6":"c6"}.get(row["layer_name"],"c6")
+            conf = f"{row['confidence']:.0%}" if row["confidence"] > 0 else "---"
+            st.markdown(f"""
+            <div style="background:{badge_color}; color:white; padding:20px; border-radius:14px;
+                        text-align:center; margin-top:8px;">
+                <div style="font-size:2rem; font-weight:800;">{row['layer_name']}</div>
+                <div style="font-size:1.2rem;">{conf}</div>
+                <div style="font-size:0.8rem; opacity:0.8; margin-top:4px;">{row['method']}</div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        if ctx:
+            steps_html = ""
+            for log in ctx.processing_log:
+                layer_n = log.get("layer","?")
+                event = log.get("event","")
+                t = log.get("time_ms", 0)
+                conf_log = log.get("confidence", 0)
+                method_log = log.get("method","")
+                if event == "PREPROCESSED":
+                    steps_html += f'<div class="step step-pre"><b>C0</b> Preprocessing <span class="time">{t:.1f}ms</span></div>'
+                elif event == "MATCH_FOUND":
+                    steps_html += (f'<div class="step step-match"><b>C{layer_n}</b> '
+                        f'<b>MATCH</b> <span class="badge" style="background:#667eea;padding:2px 10px;font-size:0.75rem;color:white;">{method_log}</span>'
+                        f' confiance <b>{conf_log:.0%}</b> <span class="time">{t:.1f}ms</span></div>')
+                elif event == "NO_MATCH":
+                    steps_html += f'<div class="step step-no"><b>C{layer_n}</b> Pas de match <span class="time">{t:.1f}ms</span></div>'
+            st.markdown(steps_html, unsafe_allow_html=True)
+
+        if row["matched"]:
+            st.markdown(f'<div class="result-box result-ok"><b>Factures :</b> {row["invoices_matched"]}</div>', unsafe_allow_html=True)
+            if row["flags"]:
+                st.markdown(f'<div class="result-box result-flags"><b>Flags :</b> {row["flags"]}</div>', unsafe_allow_html=True)
+
+
+# =====================================================================
+# PAGE 6 — REVUE HUMAINE (non attribues + recommandations)
+# =====================================================================
+elif page == "Revue Humaine":
+    st.markdown("""
+    <div class="hero">
+        <h1>Revue Humaine — Paiements Non Attribues</h1>
+        <div class="sub">Paiements que le pipeline n'a pas pu reconcilier automatiquement, avec recommandations</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    c6_df = df[df["layer_name"] == "C6"]
+    n_c6 = len(c6_df)
+
+    st.markdown(f"""
+    <div class="kpi-grid">
+        <div class="kpi-card danger">
+            <div class="value" style="color:var(--red)">{n_c6:,}</div>
+            <div class="label">Paiements en revue humaine</div>
+        </div>
+        <div class="kpi-card">
+            <div class="value">{n_c6/len(df)*100:.1f}%</div>
+            <div class="label">du total</div>
+        </div>
+        <div class="kpi-card">
+            <div class="value">{c6_df['amount'].sum()/1e6:.1f}M</div>
+            <div class="label">Volume bloque</div>
+        </div>
+        <div class="kpi-card">
+            <div class="value">{c6_df['debtor_name'].nunique()}</div>
+            <div class="label">Debiteurs concernes</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Reason analysis
+    st.markdown('<div class="section-h">Pourquoi ces paiements n\'ont pas ete matches</div>', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="info-box">
+        <div class="icon">?</div>
+        <div>
+            <b>Raisons typiques :</b> Label cryptique sans reference, montant ne correspondant a aucune facture,
+            reference severement deformee (> 3 mutations), debiteur non identifie, combinaison trop complexe,
+            ou couches C4 (ML) / C5 (LLM) inactives (pas de modele entraine / pas de cle API).
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Compute recommendations for all C6 payments
+    @st.cache_data
+    def compute_recommendations(df_c6, _invoices, _ground_truth):
+        from collections import defaultdict as _dd
+        inv_by_d = _dd(list)
+        for inv in _invoices:
+            inv_by_d[inv.debtor_id].append(inv)
+
+        recs = {}
+        for _, r in df_c6.iterrows():
+            pid = r["payment_id"]
+            search = inv_by_d.get(r["debtor_id"], _invoices[:50])
+            candidates = []
+            for inv in search:
+                score, reasons = 0.0, []
+                if inv.amount > 0:
+                    dp = abs(r["amount"] - inv.amount) / inv.amount
+                    if dp < 0.001: score += 0.40; reasons.append("montant exact")
+                    elif dp < 0.05: score += 0.30; reasons.append(f"ecart {dp:.1%}")
+                    elif dp < 0.15: score += 0.15; reasons.append(f"ecart {dp:.0%}")
+                if inv.debtor_id == r["debtor_id"]: score += 0.25; reasons.append("meme debiteur")
+                if r["date"] and inv.due_date:
+                    dd = abs((r["date"] - inv.due_date).days)
+                    if dd <= 7: score += 0.20; reasons.append(f"+{dd}j")
+                    elif dd <= 30: score += 0.12; reasons.append(f"+{dd}j")
+                if inv.amount_ht > 0 and abs(r["amount"] - inv.amount_ht) / inv.amount_ht < 0.01:
+                    score += 0.15; reasons.append("montant HT")
+                true_ref = _ground_truth.get(pid, "")
+                if score > 0.1:
+                    candidates.append({"ref": inv.reference, "amount": inv.amount,
+                        "score": min(score, 1.0), "reason": " | ".join(reasons[:3]),
+                        "is_true": inv.reference == true_ref})
+            candidates.sort(key=lambda x: -x["score"])
+            recs[pid] = candidates[:5]
+        return recs
+
+    ground_truth = data.get("ground_truth", {})
+    recommendations = compute_recommendations(c6_df, data["invoices"], ground_truth)
+
+    # Filter
+    col1, col2 = st.columns(2)
+    with col1:
+        debtor_filter = st.multiselect("Filtrer par debiteur", sorted(c6_df["debtor_name"].unique()))
+    with col2:
+        sort_by = st.selectbox("Trier par", ["Montant (desc)", "Date (recent)", "Debiteur"])
+
+    filtered_c6 = c6_df.copy()
+    if debtor_filter:
+        filtered_c6 = filtered_c6[filtered_c6["debtor_name"].isin(debtor_filter)]
+    if sort_by == "Montant (desc)":
+        filtered_c6 = filtered_c6.sort_values("amount", ascending=False)
+    elif sort_by == "Date (recent)":
+        filtered_c6 = filtered_c6.sort_values("date", ascending=False)
+    else:
+        filtered_c6 = filtered_c6.sort_values("debtor_name")
+
+    st.markdown(f'<div class="section-h">{len(filtered_c6):,} paiements non attribues</div>',
+                unsafe_allow_html=True)
+
+    # Paginated display with recommendations
+    page_size = 20
+    n_pages = max(1, (len(filtered_c6) + page_size - 1) // page_size)
+    page_num = st.number_input("Page", min_value=1, max_value=n_pages, value=1) - 1
+    page_slice = filtered_c6.iloc[page_num * page_size : (page_num + 1) * page_size]
+
+    for _, row in page_slice.iterrows():
+        pid = row["payment_id"]
+        recs = recommendations.get(pid, [])
+        label_esc = row["label"] if row["label"] else "(vide)"
+
+        # Payment card
+        has_true = any(r["is_true"] for r in recs)
+        border_color = C_GREEN if has_true else "#e2e8f0"
+
+        st.markdown(f"""
+        <div class="deep-card" style="border-left:4px solid {border_color};">
+            <div style="display:flex; align-items:center; gap:12px; margin-bottom:8px;">
+                <code style="font-size:0.9rem; font-weight:700;">{pid}</code>
+                <span style="font-size:1.1rem; font-weight:700;">{row['amount']:,.2f} EUR</span>
+                <span style="color:var(--slate); font-size:0.85rem;">{row['date']}</span>
+                <span style="color:var(--slate); font-size:0.85rem;">{row['debtor_name']}</span>
+            </div>
+            <div class="deep-label"><code>{label_esc[:100]}</code></div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Recommendations
+        if recs:
+            for i, rec in enumerate(recs):
+                is_true = rec.get("is_true", False)
+                bg = "#ecfdf5" if is_true else "#f8fafc"
+                border = "2px solid #10b981" if is_true else "1px solid #e2e8f0"
+                bar_w = int(rec["score"] * 100)
+                bar_color = "linear-gradient(90deg,#10b981,#34d399)" if is_true else "linear-gradient(90deg,#667eea,#8b5cf6)"
+                check = '<span style="background:#10b981;color:white;padding:2px 8px;border-radius:4px;font-size:0.72rem;font-weight:700;margin-left:6px;">VRAIE FACTURE</span>' if is_true else ""
+                ref_style = "font-weight:700;color:#065f46;" if is_true else ""
+                st.markdown(f"""
+                <div style="display:grid; grid-template-columns:28px 1fr 90px 70px 42px; gap:8px; align-items:center;
+                            padding:6px 12px; margin:3px 0 3px 20px; background:{bg}; border:{border}; border-radius:8px; font-size:0.82rem;">
+                    <span style="font-weight:800; color:#667eea;">#{i+1}</span>
+                    <span style="font-family:monospace; {ref_style}">{rec['ref']}{check}</span>
+                    <span style="text-align:right; font-variant-numeric:tabular-nums;">{rec['amount']:,.2f}</span>
+                    <span style="height:10px; background:#e2e8f0; border-radius:5px; overflow:hidden;">
+                        <span style="display:block; height:100%; width:{bar_w}%; background:{bar_color}; border-radius:5px;"></span>
+                    </span>
+                    <span style="font-weight:700; color:#667eea; text-align:right;">{rec['score']:.0%}</span>
+                </div>
+                <div style="font-size:0.72rem; color:#64748b; font-style:italic; padding-left:52px; margin-bottom:2px;">{rec['reason']}</div>
+                """, unsafe_allow_html=True)
+        else:
+            st.markdown('<div style="color:#94a3b8; font-style:italic; padding-left:20px; margin-bottom:8px; font-size:0.85rem;">Aucun candidat identifie</div>', unsafe_allow_html=True)
+
+    st.caption(f"Page {page_num + 1} / {n_pages} ({len(filtered_c6):,} paiements)")
+
+
+# =====================================================================
+# PAGE 7 — DEEP DIVE
 # =====================================================================
 elif page == "Deep Dive":
     st.markdown("""
