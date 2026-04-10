@@ -2,14 +2,19 @@
 Backend de donnees pour la demo Streamlit / HTML.
 Genere massivement des donnees et execute la simulation.
 Cible : 10 000+ paiements avec diversite maximale.
+
+Labels are drawn from data/verbatims.json — a corpus of 500+ real
+payment verbatim templates in 12+ languages.
 """
 from __future__ import annotations
 
+import json
 import logging
 import random
 import time
 from collections import Counter, defaultdict
 from datetime import date, timedelta
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -17,7 +22,6 @@ import pandas as pd
 logging.getLogger("reconciliation").setLevel(logging.CRITICAL)
 
 import sys
-from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from reconciliation.models import (
@@ -26,6 +30,11 @@ from reconciliation.models import (
 )
 from reconciliation.config import ReconciliationConfig
 from reconciliation.orchestrator import ReconciliationOrchestrator
+
+# ── Load verbatim corpus ──
+_VERBATIMS_PATH = Path(__file__).resolve().parent.parent / "data" / "verbatims.json"
+with open(_VERBATIMS_PATH, encoding="utf-8") as _f:
+    VERBATIMS = json.load(_f)
 
 # ============================================================
 # CONSTANTES MASSIVES
@@ -111,48 +120,27 @@ NAMES = [
     ("FR","Fromageries du Jura","SAS","Alimentaire",30,(1500,10000),"exemplaire",0,0,0,2,0.96),
 ]
 
-# ── Libelles de paiement ultra-diversifies ──
-LABEL_PREFIX = {
-    "FR":["REGLT","REGLEMENT","PAIEMENT","VIRT","VIREMENT","RGT","PMT","VIR SEPA",
-          "REGL FACTURE","PAIEMENT FOURNISSEUR","VIR SCT","REGL ECHEANCE","PAIEMENT ECHEANCE"],
-    "EN":["PAYMENT","PMT","WIRE TRANSFER","SETTLEMENT","REMITTANCE","BANK TRANSFER",
-          "CREDIT TRANSFER","SUPPLIER PAYMENT","VENDOR PMT","TRADE PAYMENT","ACH PAYMENT",
-          "FASTER PAYMENT","CHAPS PAYMENT","BACS CREDIT"],
-    "DE":["ZAHLUNG","ÜBERWEISUNG","BEZAHLUNG","RECHNUNGSBEGLEICHUNG","GUTSCHRIFT",
-          "SEPA-ÜBERWEISUNG","ZAHLUNGSAUSGLEICH","BANKÜBERWEISUNG"],
-    "NL":["BETALING","OVERBOEKING","BETALING FACTUUR","CREDITOVERSCHRIJVING","SEPA OVERBOEKING"],
-    "ES":["PAGO","TRANSFERENCIA","PAGO FACTURA","ABONO","LIQUIDACION","GIRO BANCARIO"],
-    "IT":["PAGAMENTO","BONIFICO","PAGAMENTO FATTURA","SALDO FATTURA","ACCREDITO","BONIFICO SEPA"],
-    "PT":["PAGAMENTO","TRANSFERENCIA","PAGAMENTO FATURA","LIQUIDACAO"],
-    "TR":["ODEME","HAVALE","FATURA ODEMESI","EFT ODEMESI"],
-    "PL":["PLATNOSC","PRZELEW","ZAPLATA FAKTURY","PRZELEW BANKOWY"],
-    "AR":["TAHWIL","DAFA","TASDID FATOURA","SADDAD"],
-    "JA":["振込","送金","お支払い","代金支払"],
-}
+# ── Label helpers — draw from data/verbatims.json ──
+
 COUNTRY_LANG = {
-    "FR":"FR","BE":"FR","LU":"FR","CH":"DE","DE":"DE","AT":"DE",
-    "NL":"NL","ES":"ES","IT":"IT","PT":"PT","BR":"PT","TR":"TR",
-    "PL":"PL","CZ":"PL","MA":"AR","TN":"AR","DZ":"AR","AE":"AR",
-    "GB":"EN","IE":"EN","US":"EN","SE":"EN","RO":"EN","JP":"JA","IN":"EN",
+    "FR":"fr","BE":"fr","LU":"fr","CH":"de","DE":"de","AT":"de",
+    "NL":"nl","ES":"es","IT":"it","PT":"pt","BR":"pt","TR":"tr",
+    "PL":"pl","CZ":"pl","MA":"ar","TN":"ar","DZ":"ar","AE":"ar",
+    "GB":"en","IE":"en","US":"en","SE":"en","RO":"en","JP":"ja","IN":"en",
 }
 
-CRYPTIC = [
-    "TRESORERIE MVMT {n}","REF INT {n}","VIREMENT COMMERCIAL","OP {n}",
-    "TX{n}ZZ","CASH MGMT {n}","CREDIT COMPTE","MOUVEMENT DIVERS",
-    "TREASURY TRANSFER {n}","WIRE TRANSFER {n}","SAMMELÜBERWEISUNG {n}",
-    "BETALING {n}","TRANSFERENCIA {n}","BONIFICO {n}","CLEARING {n}",
-    "NOSTRO CREDIT {n}","FX SETTLEMENT {n}","INTERCO {n}","SWEEP {n}",
-    "DAUERAUFTRAG {n}","INCASSO {n}","COMPENSATION {n}","REGUL COMPTA {n}",
-    "CENTRALISATION TRESORERIE","RAPATRIEMENT FONDS {n}","NIVELLEMENT",
-    "PRZELEW {n}","HAVALE {n}","ACH {n}","BACS {n}","CHAPS {n}",
-    "{n}","NONREF","BENM//NAME NOT PROVIDED","MSG{n}PROC","CLR{n}NET",
-    "ORD PERM {n}","MOUVEMENT INTERNE {n}","ENCAISSEMENT DIVERS",
-    "REMISE CHEQUES {n}","VERSEMENT {n}","PROVISION {n}",
-    "OPERATION DIVERSE {n}","REGULARISATION {n}","CREDIT ADJUSTMENT {n}",
-    "MISC CREDIT {n}","RETURN ITEM {n}","BANKEINZUG {n}",
-    "ODEME {n}","TAHSILAT {n}","VIRMAN {n}","PLATBA {n}",
-    "送金 {n}","汇款 {n}","입금 {n}",
-]
+MONTHS_FR_FULL = {1:"JANVIER",2:"FEVRIER",3:"MARS",4:"AVRIL",5:"MAI",6:"JUIN",
+    7:"JUILLET",8:"AOUT",9:"SEPTEMBRE",10:"OCTOBRE",11:"NOVEMBRE",12:"DECEMBRE"}
+MONTHS_EN = {1:"JANUARY",2:"FEBRUARY",3:"MARCH",4:"APRIL",5:"MAY",6:"JUNE",
+    7:"JULY",8:"AUGUST",9:"SEPTEMBER",10:"OCTOBER",11:"NOVEMBER",12:"DECEMBER"}
+MONTHS_DE = {1:"JANUAR",2:"FEBRUAR",3:"MÄRZ",4:"APRIL",5:"MAI",6:"JUNI",
+    7:"JULI",8:"AUGUST",9:"SEPTEMBER",10:"OKTOBER",11:"NOVEMBER",12:"DEZEMBER"}
+MONTHS_ES = {1:"ENERO",2:"FEBRERO",3:"MARZO",4:"ABRIL",5:"MAYO",6:"JUNIO",
+    7:"JULIO",8:"AGOSTO",9:"SEPTIEMBRE",10:"OCTUBRE",11:"NOVIEMBRE",12:"DICIEMBRE"}
+MONTHS_IT = {1:"GENNAIO",2:"FEBBRAIO",3:"MARZO",4:"APRILE",5:"MAGGIO",6:"GIUGNO",
+    7:"LUGLIO",8:"AGOSTO",9:"SETTEMBRE",10:"OTTOBRE",11:"NOVEMBRE",12:"DICEMBRE"}
+MONTHS_NL = {1:"JANUARI",2:"FEBRUARI",3:"MAART",4:"APRIL",5:"MEI",6:"JUNI",
+    7:"JULI",8:"AUGUSTUS",9:"SEPTEMBER",10:"OKTOBER",11:"NOVEMBER",12:"DECEMBER"}
 
 def _pick(w, rng):
     return rng.choices(list(w.keys()), weights=list(w.values()), k=1)[0]
@@ -174,14 +162,55 @@ def _typo(ref, rng):
         if ds: i = rng.choice(ds); c[i] = str((int(c[i])+rng.randint(1,3))%10)
     return "".join(c)
 
+def _v(category: str, rng, country: str = "FR", **kwargs) -> str:
+    """Pick a verbatim template from the corpus and fill placeholders."""
+    corpus = VERBATIMS.get(category, [])
+
+    # Corpus can be a dict {lang: [templates]} or a flat [templates]
+    if isinstance(corpus, dict):
+        lang = COUNTRY_LANG.get(country, "en")
+        pool = corpus.get(lang, corpus.get("en", corpus.get("fr", [])))
+    else:
+        pool = corpus
+
+    if not pool:
+        return kwargs.get("ref", "PAYMENT")
+
+    tmpl = rng.choice(pool)
+
+    # Add bank noise prefix 15% of the time for realism
+    if rng.random() < 0.15 and "noise_prefixes" in VERBATIMS:
+        noise = rng.choice(VERBATIMS["noise_prefixes"])
+        tmpl = noise + tmpl
+
+    # Fill all known placeholders (with fallback defaults for any missing)
+    subs = {
+        "n": str(rng.randint(1000, 999999)),
+        "pct": str(kwargs.get("pct", 2)),
+        "date": "",
+        "amount": "",
+        "month": "", "year": "",
+        "month_en": "", "month_en_short": "",
+        "month_de": "", "month_es": "", "month_it": "", "month_nl": "",
+        "month_short": "",
+        "ref": "", "po": "", "bl": "", "cn": "",
+    }
+    subs.update(kwargs)  # caller overrides last
+    for key, val in subs.items():
+        tmpl = tmpl.replace("{" + key + "}", str(val))
+
+    # Strip any remaining unfilled placeholders
+    import re
+    tmpl = re.sub(r"\{[a-z_]+\}", "", tmpl)
+
+    # Collapse whitespace
+    tmpl = " ".join(tmpl.split())
+    return tmpl
+
+
 def _lbl(ref, country, rng):
-    lang = COUNTRY_LANG.get(country, "EN")
-    pool = LABEL_PREFIX.get(lang, LABEL_PREFIX["EN"])
-    pre = rng.choice(pool)
-    if rng.random() < 0.12:
-        noise = rng.choice(["/RFB/","/ROC/","E2E/","//",f"/{rng.randint(100000,999999)}/"])
-        return f"{noise}{pre} {ref}"
-    return f"{pre} {ref}"
+    """Pick an exact_ref verbatim for a given country/language."""
+    return _v("exact_ref", rng, country, ref=ref)
 
 
 # ============================================================
@@ -313,78 +342,60 @@ def generate_all(seed=42, months=range(1,13), target_payments=10000):
                 pp.signals.raw_refs = [inv.reference.replace("-","").upper()]
                 payments.append(pp); consumed.add(inv.id); idx += 1
             elif scenario == "C1_IBAN":
-                lang = COUNTRY_LANG.get(d.country,"EN")
-                pool = {"FR":["VIREMENT","REGLEMENT","PAIEMENT","CREDIT COMPTE"],
-                        "EN":["WIRE TRANSFER","PAYMENT","BANK TRANSFER","REMITTANCE"],
-                        "DE":["ÜBERWEISUNG","ZAHLUNG","GUTSCHRIFT"],
-                        "NL":["BETALING","OVERBOEKING"]}.get(lang,["PAYMENT","TRANSFER"])
-                payments.append(mkp(inv.amount, rng.choice(pool), []))
+                payments.append(mkp(inv.amount, _v("generic", rng, d.country), []))
                 consumed.add(inv.id); idx += 1
             elif scenario == "C1_PO" and inv.po_number:
-                po_lbl = rng.choice([f"REGLT COMMANDE {inv.po_number}",f"PMT PO {inv.po_number}",
-                    f"PAYMENT ORDER {inv.po_number}",f"ZAHLUNG BESTELLUNG {inv.po_number}"])
-                payments.append(mkp(inv.amount, po_lbl, [inv.po_number]))
+                payments.append(mkp(inv.amount, _v("po_match", rng, d.country, po=inv.po_number, ref=inv.reference), [inv.po_number]))
                 consumed.add(inv.id); idx += 1
             elif scenario == "C1_BL" and inv.bl_number:
-                bl_lbl = rng.choice([f"REGLEMENT {inv.bl_number}",f"PMT DELIVERY {inv.bl_number}",
-                    f"ZAHLUNG LIEFERSCHEIN {inv.bl_number}",f"PAGAMENTO DDT {inv.bl_number}"])
-                payments.append(mkp(inv.amount, bl_lbl, [inv.bl_number]))
+                payments.append(mkp(inv.amount, _v("bl_match", rng, d.country, bl=inv.bl_number), [inv.bl_number]))
                 consumed.add(inv.id); idx += 1
             elif scenario == "C1_BALANCE":
                 rem = [i for i in avail[idx:] if i.id not in consumed][:8]
                 if len(rem) >= 2:
-                    lbl = rng.choice(["SOLDE TOTAL COMPTE","FULL BALANCE","KONTOAUSGLEICH",
-                        "APUREMENT SOLDE","CLEARING ALL INVOICES"])
-                    payments.append(mkp(sum(i.amount for i in rem), lbl, []))
+                    payments.append(mkp(sum(i.amount for i in rem), _v("full_balance", rng, d.country), []))
                     for i in rem: consumed.add(i.id)
                     idx += len(rem)
                 else: idx += 1; continue
             elif scenario == "C2_SWIFT":
                 fee = round(rng.uniform(12,35),2)
-                payments.append(mkp(inv.amount-fee, _lbl(inv.reference,d.country,rng), [inv.reference]))
+                payments.append(mkp(inv.amount-fee, _v("swift_fees", rng, d.country, ref=inv.reference), [inv.reference]))
                 consumed.add(inv.id); idx += 1
             elif scenario == "C2_WHT":
                 rate = WHT.get(d.country, 0.15)
-                payments.append(mkp(round(inv.amount*(1-rate),2), _lbl(inv.reference,d.country,rng), [inv.reference]))
+                payments.append(mkp(round(inv.amount*(1-rate),2), _v("wht", rng, d.country, ref=inv.reference), [inv.reference]))
                 consumed.add(inv.id); idx += 1
             elif scenario == "C2_DISCOUNT" and p["disc"] > 0:
-                disc_lbl = rng.choice([f"REGLT {inv.reference} ESC {p['disc']*100:.0f}%",
-                    f"PMT {inv.reference} DISCOUNT {p['disc']*100:.0f}%",
-                    f"{inv.reference} ESCOMPTE DEDUIT",f"ZAHLUNG {inv.reference} SKONTO"])
-                payments.append(mkp(round(inv.amount*(1-p["disc"]),2), disc_lbl, [inv.reference]))
+                lbl = _v("discount", rng, d.country, ref=inv.reference, pct=int(p["disc"]*100))
+                payments.append(mkp(round(inv.amount*(1-p["disc"]),2), lbl, [inv.reference]))
                 consumed.add(inv.id); idx += 1
             elif scenario == "C2_RETENTION" and p["ret"] > 0:
-                ret_lbl = rng.choice([f"REGLT {inv.reference} RET GAR {p['ret']*100:.0f}%",
-                    f"PMT {inv.reference} RETENTION {p['ret']*100:.0f}%",
-                    f"REGLT CHANTIER {inv.reference} RETENUE GARANTIE"])
-                payments.append(mkp(round(inv.amount*(1-p["ret"]),2), ret_lbl, [inv.reference]))
+                lbl = _v("retention", rng, d.country, ref=inv.reference, pct=int(p["ret"]*100))
+                payments.append(mkp(round(inv.amount*(1-p["ret"]),2), lbl, [inv.reference]))
                 consumed.add(inv.id); idx += 1
             elif scenario == "C2_RFA" and p["rfa"] > 0:
-                rfa_lbl = rng.choice([f"REGLT {inv.reference} DED RFA",
-                    f"PMT {inv.reference} YEAR END REBATE",f"{inv.reference} RFA ANNUELLE"])
-                payments.append(mkp(round(inv.amount*(1-p["rfa"]),2), rfa_lbl, [inv.reference]))
+                lbl = _v("rfa", rng, d.country, ref=inv.reference, pct=int(p["rfa"]*100))
+                payments.append(mkp(round(inv.amount*(1-p["rfa"]),2), lbl, [inv.reference]))
                 consumed.add(inv.id); idx += 1
             elif scenario == "C2_CREDIT":
                 ok = [cn for cn in credit_notes if cn.debtor_id==d.id and cn.id not in cn_used and cn.amount<inv.amount]
                 if ok:
                     cn = ok[0]
-                    payments.append(mkp(round(inv.amount-cn.amount,2),
-                        f"REGLT {inv.reference} DED {cn.reference}", [inv.reference]))
+                    lbl = _v("credit_note", rng, d.country, ref=inv.reference, cn=cn.reference)
+                    payments.append(mkp(round(inv.amount-cn.amount,2), lbl, [inv.reference]))
                     consumed.add(inv.id); cn_used.add(cn.id); idx += 1
                 else: idx += 1; continue
             elif scenario == "C2_ROUND":
                 delta = round(rng.uniform(-0.99,0.99),2)
                 if abs(delta) < 0.01: delta = 0.50
-                payments.append(mkp(inv.amount+delta, _lbl(inv.reference,d.country,rng), [inv.reference]))
+                payments.append(mkp(inv.amount+delta, _v("rounding", rng, d.country, ref=inv.reference), [inv.reference]))
                 consumed.add(inv.id); idx += 1
             elif scenario == "C2_SUBSET":
                 rem = [i for i in avail[idx:] if i.id not in consumed]
                 n = min(rng.randint(2,4), len(rem))
                 if n >= 2:
                     grp = rem[:n]
-                    lbl = rng.choice(["REGLEMENT FACTURES EN COURS","PAYMENT MULTIPLE INVOICES",
-                        "SAMMELZAHLUNG","PAGO FACTURAS PENDIENTES","BETALING OPENSTAANDE FACTUREN",
-                        f"REGLEMENT {len(grp)} FACTURES","BULK PAYMENT"])
+                    lbl = _v("subset_sum", rng, d.country, n=str(len(grp)), date=str(dt))
                     payments.append(mkp(round(sum(i.amount for i in grp),2), lbl, []))
                     for i in grp: consumed.add(i.id)
                     idx += n
@@ -392,9 +403,7 @@ def generate_all(seed=42, months=range(1,13), target_payments=10000):
             elif scenario == "C2_INSTALL":
                 pct = rng.choice([0.30,0.50,0.70])
                 amt1 = round(inv.amount*pct,2)
-                lbl1 = rng.choice([f"ACOMPTE {int(pct*100)}% {inv.reference}",
-                    f"ADVANCE {int(pct*100)}% {inv.reference}",f"ANZAHLUNG {int(pct*100)}% {inv.reference}",
-                    f"DOWN PAYMENT {inv.reference}",f"1ERE ECHEANCE {inv.reference}"])
+                lbl1 = _v("installment_first", rng, d.country, ref=inv.reference, pct=int(pct*100))
                 payments.append(mkp(amt1, lbl1, [inv.reference],
                     kw={"partial":True,"advance":True,"credit_note":False,"final":False}))
                 pay_seq += 1
@@ -402,9 +411,7 @@ def generate_all(seed=42, months=range(1,13), target_payments=10000):
                 dt2 = dt + timedelta(days=rng.randint(15,30))
                 while dt2.weekday()>=5: dt2 += timedelta(days=1)
                 rest = round(inv.amount-amt1,2)
-                lbl2 = rng.choice([f"SOLDE {int((1-pct)*100)}% {inv.reference}",
-                    f"FINAL PAYMENT {inv.reference}",f"BALANCE DUE {inv.reference}",
-                    f"2EME ECHEANCE {inv.reference}",f"RESTZAHLUNG {inv.reference}"])
+                lbl2 = _v("installment_final", rng, d.country, ref=inv.reference, pct=int((1-pct)*100))
                 p2 = Payment(id=pid2, amount=rest, currency=Currency.EUR, date=dt2,
                     label_raw=lbl2, label_normalized=lbl2.upper(),
                     iban_source=d.iban, bic_source=d.bic or "",
@@ -419,10 +426,16 @@ def generate_all(seed=42, months=range(1,13), target_payments=10000):
                 if len(same) >= 2:
                     total = round(sum(i.amount for i in same),2)
                     mname = MONTHS_FR.get(tm,"").upper()
-                    lbl = rng.choice([f"REGLEMENT FACTURES {mname} {inv.issue_date.year}",
-                        f"PAYMENT INVOICES {mname} {inv.issue_date.year}",
-                        f"ZAHLUNG RECHNUNGEN {mname}",f"PAGO FACTURAS {mname} {inv.issue_date.year}",
-                        f"REGLT MENSUEL {mname[:3]} {inv.issue_date.year}"])
+                    yr = inv.issue_date.year
+                    lbl = _v("temporal", rng, d.country,
+                             month=mname, year=str(yr),
+                             month_en=MONTHS_EN.get(tm,""),
+                             month_en_short=MONTHS_EN.get(tm,"")[:3],
+                             month_de=MONTHS_DE.get(tm,""),
+                             month_es=MONTHS_ES.get(tm,""),
+                             month_it=MONTHS_IT.get(tm,""),
+                             month_nl=MONTHS_NL.get(tm,""),
+                             month_short=mname[:3])
                     pp = mkp(total, lbl, [])
                     pp.signals.label_periods = [f"{mname} {inv.issue_date.year}"]
                     payments.append(pp)
@@ -430,17 +443,15 @@ def generate_all(seed=42, months=range(1,13), target_payments=10000):
                     idx += len(same)
                 else: idx += 1; continue
             elif scenario == "C2_HT":
-                payments.append(mkp(inv.amount_ht, f"PAYMENT INVOICE {inv.reference}", [inv.reference]))
+                payments.append(mkp(inv.amount_ht, _v("ht_error", rng, d.country, ref=inv.reference), [inv.reference]))
                 consumed.add(inv.id); idx += 1
             elif scenario == "C3_FUZZY":
                 typo = _typo(inv.reference, rng)
-                lbl = rng.choice([f"REGLT {typo}",f"PMT {typo}",f"PAYMENT {typo}",
-                    f"ZAHLUNG {typo}",f"BETALING {typo}",f"PAGO {typo}"])
+                lbl = _v("exact_ref", rng, d.country, ref=typo)  # label looks like exact_ref but with typo
                 payments.append(mkp(inv.amount, lbl, [typo]))
                 consumed.add(inv.id); idx += 1
             elif scenario == "C6":
-                tmpl = rng.choice(CRYPTIC)
-                lbl = tmpl.format(n=rng.randint(1000,9999))
+                lbl = _v("cryptic", rng, d.country)
                 amt = inv.amount if rng.random() < 0.3 else round(rng.uniform(500,80000),2)
                 payments.append(mkp(amt, lbl, []))
                 ground_truth[pid] = inv.reference
