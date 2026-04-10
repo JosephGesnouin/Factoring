@@ -53,17 +53,17 @@ WHT = {"MA":0.20,"TR":0.18,"TN":0.15,"DZ":0.24,"IN":0.10,"BR":0.15}
 STYLES = ["exemplaire","iso20022","btp_retention","distribution","bl_match",
           "international","multi_facture","po_match","installments","fuzzy_typos","temporel"]
 SCENARIO_W = {
-    "exemplaire":     {"C1_EXACT_REF":0.70,"C1_IBAN":0.15,"C2_ROUND":0.05,"C6":0.10},
-    "iso20022":       {"C1_ISO":0.50,"C1_EXACT_REF":0.15,"C2_HT":0.10,"C3_FUZZY":0.05,"C6":0.20},
-    "btp_retention":  {"C2_RETENTION":0.45,"C1_EXACT_REF":0.10,"C2_SUBSET":0.15,"C2_INSTALL":0.10,"C6":0.20},
-    "distribution":   {"C2_DISCOUNT":0.25,"C2_RFA":0.10,"C2_CREDIT":0.10,"C2_SUBSET":0.15,"C1_EXACT_REF":0.15,"C6":0.25},
-    "bl_match":       {"C1_BL":0.40,"C1_EXACT_REF":0.20,"C1_BALANCE":0.10,"C2_ROUND":0.10,"C6":0.20},
-    "international":  {"C2_SWIFT":0.30,"C2_WHT":0.20,"C1_EXACT_REF":0.15,"C6":0.35},
-    "multi_facture":  {"C2_SUBSET":0.40,"C1_EXACT_REF":0.10,"C3_FUZZY":0.10,"C6":0.40},
-    "po_match":       {"C1_PO":0.50,"C1_EXACT_REF":0.20,"C2_ROUND":0.10,"C6":0.20},
-    "installments":   {"C2_INSTALL":0.40,"C1_EXACT_REF":0.25,"C6":0.35},
-    "fuzzy_typos":    {"C3_FUZZY":0.40,"C1_EXACT_REF":0.20,"C2_ROUND":0.10,"C6":0.30},
-    "temporel":       {"C2_TEMPORAL":0.30,"C1_EXACT_REF":0.15,"C2_SUBSET":0.15,"C1_BALANCE":0.10,"C6":0.30},
+    "exemplaire":     {"C1_EXACT_REF":0.60,"C1_IBAN":0.12,"C2_ROUND":0.05,"C3_FUZZY":0.08,"C3_MED":0.05,"C6":0.10},
+    "iso20022":       {"C1_ISO":0.45,"C1_EXACT_REF":0.12,"C2_HT":0.08,"C3_FUZZY":0.08,"C3_MED":0.07,"C6":0.20},
+    "btp_retention":  {"C2_RETENTION":0.35,"C1_EXACT_REF":0.08,"C2_SUBSET":0.12,"C2_INSTALL":0.10,"C3_FUZZY":0.08,"C3_MED":0.07,"C6":0.20},
+    "distribution":   {"C2_DISCOUNT":0.20,"C2_RFA":0.08,"C2_CREDIT":0.08,"C2_SUBSET":0.12,"C1_EXACT_REF":0.10,"C3_FUZZY":0.08,"C3_MED":0.06,"C3_HEAVY":0.03,"C6":0.25},
+    "bl_match":       {"C1_BL":0.35,"C1_EXACT_REF":0.15,"C1_BALANCE":0.08,"C2_ROUND":0.08,"C3_FUZZY":0.10,"C3_MED":0.06,"C6":0.18},
+    "international":  {"C2_SWIFT":0.25,"C2_WHT":0.18,"C1_EXACT_REF":0.10,"C3_FUZZY":0.10,"C3_MED":0.07,"C6":0.30},
+    "multi_facture":  {"C2_SUBSET":0.30,"C1_EXACT_REF":0.08,"C3_FUZZY":0.12,"C3_MED":0.10,"C6":0.40},
+    "po_match":       {"C1_PO":0.40,"C1_EXACT_REF":0.15,"C2_ROUND":0.08,"C3_FUZZY":0.12,"C3_MED":0.07,"C6":0.18},
+    "installments":   {"C2_INSTALL":0.35,"C1_EXACT_REF":0.18,"C3_FUZZY":0.10,"C3_MED":0.07,"C6":0.30},
+    "fuzzy_typos":    {"C3_FUZZY":0.25,"C3_MED":0.20,"C3_HEAVY":0.10,"C1_EXACT_REF":0.10,"C2_ROUND":0.05,"C6":0.30},
+    "temporel":       {"C2_TEMPORAL":0.25,"C1_EXACT_REF":0.10,"C2_SUBSET":0.12,"C1_BALANCE":0.08,"C3_FUZZY":0.10,"C3_MED":0.08,"C6":0.27},
 }
 
 # ── 50 debiteurs pre-definis pour diversite maximale ──
@@ -145,22 +145,175 @@ MONTHS_NL = {1:"JANUARI",2:"FEBRUARI",3:"MAART",4:"APRIL",5:"MEI",6:"JUNI",
 def _pick(w, rng):
     return rng.choices(list(w.keys()), weights=list(w.values()), k=1)[0]
 
-def _typo(ref, rng):
+def _typo(ref, rng, severity="light"):
+    """Introduce realistic typos/mutations in a reference.
+
+    severity:
+        "light"  — 1 mutation (swap, digit, 0→O)
+        "medium" — 2 mutations or structural change (truncate, prefix swap)
+        "heavy"  — 3+ mutations, completely mangled but still recoverable
+    """
     c = list(ref)
-    if len(c) < 5: return ref
-    op = rng.choice(["swap","drop","0O","digit","double"])
-    if op == "swap" and len(c)>5:
-        i = rng.randint(2,len(c)-2); c[i],c[i+1] = c[i+1],c[i]
-    elif op == "drop": c.pop(rng.randint(2,len(c)-1))
-    elif op == "0O":
-        for i,ch in enumerate(c):
-            if ch == "0": c[i] = "O"; break
-    elif op == "double":
-        i = rng.randint(2,len(c)-1); c.insert(i, c[i])
-    else:
-        ds = [i for i,ch in enumerate(c) if ch.isdigit()]
-        if ds: i = rng.choice(ds); c[i] = str((int(c[i])+rng.randint(1,3))%10)
+    if len(c) < 5:
+        return ref
+
+    mutations = {
+        "swap": lambda: _mut_swap(c, rng),
+        "drop": lambda: _mut_drop(c, rng),
+        "0_to_O": lambda: _mut_0O(c),
+        "1_to_l": lambda: _mut_1l(c),
+        "wrong_digit": lambda: _mut_digit(c, rng),
+        "double_char": lambda: _mut_double(c, rng),
+        "extra_space": lambda: _mut_space(c, rng),
+        "wrong_sep": lambda: _mut_sep(c, rng),
+        "truncate_end": lambda: _mut_truncate_end(c, rng),
+        "truncate_start": lambda: _mut_truncate_start(c, rng),
+        "prefix_swap": lambda: _mut_prefix_swap(c, rng),
+        "strip_prefix": lambda: _mut_strip_prefix(c),
+        "strip_zeros": lambda: _mut_strip_zeros(c),
+        "add_zeros": lambda: _mut_add_zeros(c, rng),
+        "case_change": lambda: _mut_case(c, rng),
+        "reverse_segment": lambda: _mut_reverse(c, rng),
+    }
+
+    if severity == "light":
+        n_mut = 1
+        pool = ["swap","drop","0_to_O","1_to_l","wrong_digit","double_char"]
+    elif severity == "medium":
+        n_mut = 2
+        pool = list(mutations.keys())
+    else:  # heavy
+        n_mut = rng.randint(3, 5)
+        pool = list(mutations.keys())
+
+    used = set()
+    for _ in range(n_mut):
+        available = [m for m in pool if m not in used]
+        if not available:
+            break
+        op = rng.choice(available)
+        used.add(op)
+        mutations[op]()
+
     return "".join(c)
+
+
+# ── Individual mutation operators ──
+
+def _mut_swap(c, rng):
+    """Swap two adjacent characters."""
+    if len(c) > 5:
+        i = rng.randint(2, len(c)-2)
+        c[i], c[i+1] = c[i+1], c[i]
+
+def _mut_drop(c, rng):
+    """Drop one character."""
+    if len(c) > 4:
+        c.pop(rng.randint(2, len(c)-1))
+
+def _mut_0O(c):
+    """Replace first 0 with O."""
+    for i, ch in enumerate(c):
+        if ch == "0": c[i] = "O"; break
+
+def _mut_1l(c):
+    """Replace first 1 with l (lowercase L)."""
+    for i, ch in enumerate(c):
+        if ch == "1": c[i] = "l"; break
+
+def _mut_digit(c, rng):
+    """Change one digit to an adjacent digit."""
+    ds = [i for i, ch in enumerate(c) if ch.isdigit()]
+    if ds:
+        i = rng.choice(ds)
+        c[i] = str((int(c[i]) + rng.randint(1, 3)) % 10)
+
+def _mut_double(c, rng):
+    """Double a character (keyboard stutter)."""
+    if len(c) > 4:
+        i = rng.randint(2, len(c)-1)
+        c.insert(i, c[i])
+
+def _mut_space(c, rng):
+    """Insert a space in the middle."""
+    i = rng.randint(3, len(c)-2)
+    c.insert(i, " ")
+
+def _mut_sep(c, rng):
+    """Change separator style (- → / or vice versa)."""
+    seps = {"-": "/", "/": "-", ".": "-"}
+    for i, ch in enumerate(c):
+        if ch in seps:
+            c[i] = seps[ch]
+            break
+
+def _mut_truncate_end(c, rng):
+    """Truncate last 1-3 characters (label cutoff)."""
+    n = rng.randint(1, min(3, len(c)-4))
+    del c[-n:]
+
+def _mut_truncate_start(c, rng):
+    """Truncate first 1-3 characters (missing prefix)."""
+    n = rng.randint(1, min(3, len(c)-4))
+    del c[:n]
+
+def _mut_prefix_swap(c, rng):
+    """Replace the alpha prefix with a different one."""
+    prefixes = ["FAC","FACT","INV","F","FC","FT"]
+    # Find end of alpha prefix
+    alpha_end = 0
+    for i, ch in enumerate(c):
+        if ch.isdigit() or ch in "-/": break
+        alpha_end = i + 1
+    if alpha_end > 0:
+        new_pre = rng.choice(prefixes)
+        c[:alpha_end] = list(new_pre)
+
+def _mut_strip_prefix(c):
+    """Remove the alpha prefix entirely (just digits remain)."""
+    first_digit = None
+    for i, ch in enumerate(c):
+        if ch.isdigit():
+            first_digit = i
+            break
+    if first_digit and first_digit > 0:
+        del c[:first_digit]
+
+def _mut_strip_zeros(c):
+    """Strip leading zeros from numeric part."""
+    first_digit = None
+    for i, ch in enumerate(c):
+        if ch.isdigit():
+            first_digit = i
+            break
+    if first_digit is not None:
+        # Strip zeros after prefix
+        while first_digit < len(c) - 1 and c[first_digit] == "0":
+            c.pop(first_digit)
+
+def _mut_add_zeros(c, rng):
+    """Add leading zeros to numeric part."""
+    first_digit = None
+    for i, ch in enumerate(c):
+        if ch.isdigit():
+            first_digit = i
+            break
+    if first_digit is not None:
+        for _ in range(rng.randint(1, 3)):
+            c.insert(first_digit, "0")
+
+def _mut_case(c, rng):
+    """Randomly change case of a few characters."""
+    for _ in range(rng.randint(1, 3)):
+        i = rng.randint(0, len(c)-1)
+        c[i] = c[i].lower() if c[i].isupper() else c[i].upper()
+
+def _mut_reverse(c, rng):
+    """Reverse a small segment (transposition)."""
+    if len(c) > 6:
+        i = rng.randint(2, len(c)-4)
+        n = rng.randint(2, 3)
+        c[i:i+n] = c[i:i+n][::-1]
 
 def _v(category: str, rng, country: str = "FR", **kwargs) -> str:
     """Pick a verbatim template from the corpus and fill placeholders."""
@@ -446,8 +599,25 @@ def generate_all(seed=42, months=range(1,13), target_payments=10000):
                 payments.append(mkp(inv.amount_ht, _v("ht_error", rng, d.country, ref=inv.reference), [inv.reference]))
                 consumed.add(inv.id); idx += 1
             elif scenario == "C3_FUZZY":
-                typo = _typo(inv.reference, rng)
-                lbl = _v("exact_ref", rng, d.country, ref=typo)  # label looks like exact_ref but with typo
+                # Light typo: 1 mutation, amount exact → C3 fuzzy should catch it
+                typo = _typo(inv.reference, rng, severity="light")
+                lbl = _v("exact_ref", rng, d.country, ref=typo)
+                payments.append(mkp(inv.amount, lbl, [typo]))
+                consumed.add(inv.id); idx += 1
+            elif scenario == "C3_MED":
+                # Medium typo: 2 mutations (prefix swap, digit change, truncation...)
+                typo = _typo(inv.reference, rng, severity="medium")
+                # Sometimes also slight amount mismatch (rounding + typo)
+                amt = inv.amount
+                if rng.random() < 0.3:
+                    amt = round(inv.amount + rng.uniform(-0.99, 0.99), 2)
+                lbl = _v("exact_ref", rng, d.country, ref=typo)
+                payments.append(mkp(amt, lbl, [typo]))
+                consumed.add(inv.id); idx += 1
+            elif scenario == "C3_HEAVY":
+                # Heavy typo: 3+ mutations, very mangled ref — stress test for C3/C4/C5
+                typo = _typo(inv.reference, rng, severity="heavy")
+                lbl = _v("exact_ref", rng, d.country, ref=typo)
                 payments.append(mkp(inv.amount, lbl, [typo]))
                 consumed.add(inv.id); idx += 1
             elif scenario == "C6":
