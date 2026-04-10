@@ -496,6 +496,267 @@ for _, r in debtor_stats.sort_values("taux", ascending=False).iterrows():
     </tr>"""
 
 # ============================================================
+# SHOWCASE — Execute 27 multi-invoice scenarios live
+# ============================================================
+print("Running 27 showcase scenarios...")
+
+from datetime import date as _date
+from reconciliation.c1_exact_matching import ExactMatcher
+from reconciliation.c2_business_rules import BusinessRuleMatcher
+from reconciliation.orchestrator import ReconciliationOrchestrator as _Orch
+from reconciliation.models import CreditNote as _CN, Debtor as _Deb, Invoice as _Inv, Payment as _Pay, PaymentSignals as _Sig
+
+_seq = [0]
+def _mkinv(ref, amt, did="D1"):
+    _seq[0] += 1
+    return _Inv(id=f"SC-INV-{_seq[0]}", reference=ref, debtor_id=did,
+                amount=amt, amount_ht=round(amt/1.2, 2),
+                issue_date=_date(2024,9,1), due_date=_date(2024,10,1))
+
+def _mkpay(amt, did="D1", refs=None, label="", kw=None):
+    _seq[0] += 1
+    sig = _Sig(raw_refs=[r.replace("-","").upper() for r in refs] if refs else [])
+    if kw: sig.keywords = kw
+    return _Pay(id=f"SC-PAY-{_seq[0]}", amount=amt, debtor_id=did,
+                date=_date(2024,10,15), label_raw=label, label_normalized=label.upper(),
+                signals=sig)
+
+# Define all scenarios as (title, description, setup_fn → result_text)
+SCENARIOS = []
+
+def _run(title, desc, invoices, payments, debtor=None, expect_n_inv=None):
+    """Run a scenario through the orchestrator and capture result."""
+    orch = _Orch()
+    if debtor:
+        for p in payments:
+            p.debtor = debtor
+    orch.setup(invoices, debtors=[debtor] if debtor else None)
+    open_inv = list(invoices)
+    results = []
+    for pay in payments:
+        ctx = orch.process_payment(pay, open_inv)
+        results.append(ctx)
+        if ctx.final_match:
+            mids = {i.id for i in ctx.final_match.invoices}
+            open_inv = [i for i in open_inv if i.id not in mids]
+
+    # Build result card
+    inv_table = "".join(
+        f'<span class="sc-inv">{inv.reference} = {inv.amount:,.2f} EUR</span>'
+        for inv in invoices
+    )
+    pay_rows = ""
+    for ctx in results:
+        p = ctx.payment
+        fm = ctx.final_match
+        badge = "c1" if fm and fm.layer == 1 else "c2" if fm and fm.layer == 2 else "c6"
+        layer = f"C{fm.layer}" if fm else "C6"
+        method = fm.method.value if fm else "HUMAN_REVIEW"
+        conf = f"{fm.confidence:.0%}" if fm else "—"
+        matched = ", ".join(i.reference for i in fm.invoices) if fm else "—"
+        n_inv = len(fm.invoices) if fm else 0
+        flags = ", ".join(fm.flags[:2]) if fm and fm.flags else ""
+        label_esc = (p.label_raw or "(vide)").replace("<","&lt;")
+        pay_rows += f"""<tr>
+            <td><code>{p.id}</code></td>
+            <td class="num">{p.amount:,.2f}</td>
+            <td class="mono">{label_esc[:60]}</td>
+            <td><span class="badge {badge}">{layer}</span></td>
+            <td>{method[:22]}</td>
+            <td class="num">{conf}</td>
+            <td class="num">{n_inv}</td>
+            <td class="inv-cell">{matched}</td>
+            <td class="flags-cell">{flags}</td>
+        </tr>"""
+
+    SCENARIOS.append((title, desc, inv_table, pay_rows, len(invoices), len(payments)))
+
+# ── 1 payment → N invoices ──
+
+inv1, inv2 = _mkinv("FAC-A1", 5000), _mkinv("FAC-A2", 3000)
+_run("1 paiement → 2 factures (ref exacte)",
+     "Le libelle contient les 2 references. Montant = 5 000 + 3 000 = 8 000 EUR.",
+     [inv1, inv2], [_mkpay(8000, refs=["FAC-A1","FAC-A2"], label="REGLT FAC-A1 FAC-A2")])
+
+invs5 = [_mkinv(f"FAC-B{i}", 1000*(i+1)) for i in range(5)]
+_run("1 paiement → 5 factures (ref exacte)",
+     "5 references dans le libelle. Total = 1 000 + 2 000 + ... + 5 000 = 15 000 EUR.",
+     invs5, [_mkpay(sum(i.amount for i in invs5), refs=[i.reference for i in invs5],
+                     label="REGLEMENT " + " ".join(i.reference for i in invs5))])
+
+invs_ss = [_mkinv(f"SS-{i}", a) for i,a in enumerate([1000,2000,3000,4000,5000])]
+_run("1 paiement → 2 factures (subset sum, sans ref)",
+     "Pas de reference dans le libelle. L'algorithme trouve que 3 000 + 5 000 = 8 000.",
+     invs_ss, [_mkpay(8000, refs=[], label="REGLEMENT FACTURES EN COURS")])
+
+invs_fb = [_mkinv(f"FB-{i}", 1000*(i+1)) for i in range(6)]
+_run("1 paiement → 6 factures (solde total debiteur)",
+     "Montant = somme de TOUTES les factures ouvertes = 21 000 EUR. Matching C1 full balance.",
+     invs_fb, [_mkpay(sum(i.amount for i in invs_fb), refs=[], label="SOLDE TOTAL COMPTE")])
+
+inv_cn1, inv_cn2 = _mkinv("CN-F1", 10000), _mkinv("CN-F2", 8000)
+cn = _CN(id="AV-1", reference="AV-001", debtor_id="D1", amount=3000)
+deb_cn = _Deb(id="D1", name="Test", open_credits=[cn])
+_run("1 paiement → 2 factures - 1 avoir (solde net)",
+     "Total factures = 18 000, avoir = 3 000. Paiement = 15 000 = solde net.",
+     [inv_cn1, inv_cn2], [_mkpay(15000, refs=[], label="APUREMENT SOLDE")],
+     debtor=deb_cn)
+
+invs_big = [_mkinv(f"SS3-{i}", float(1000+i*137)) for i in range(15)]
+target3 = invs_big[3].amount + invs_big[7].amount + invs_big[11].amount
+_run("1 paiement → 3 factures sur 15 (subset sum DP)",
+     f"15 factures ouvertes, le paiement ({target3:,.2f} EUR) correspond a 3 d'entre elles. "
+     "Resolu par l'algorithme meet-in-the-middle.",
+     invs_big, [_mkpay(target3, refs=[], label="PAYMENT MULTIPLE INVOICES")])
+
+invs_sm = [_mkinv(f"SM-{i}", 500) for i in range(6)]
+_run("1 paiement → 6 petites factures identiques",
+     "6 factures de 500 EUR chacune. Paiement = 3 000 EUR = 6 x 500.",
+     invs_sm, [_mkpay(3000, refs=[], label="BULK PAYMENT")])
+
+# ── N payments → 1 invoice ──
+
+inv_inst = _mkinv("INST-1", 10000)
+_run("2 paiements → 1 facture (acompte 30% + solde 70%)",
+     "Premier paiement = 3 000 (30%), second = 7 000 (70%). La facture fait 10 000 EUR.",
+     [inv_inst], [
+         _mkpay(3000, refs=["INST-1"], label="ACOMPTE 30% INST-1", kw={"partial":True,"advance":True}),
+         _mkpay(7000, refs=["INST-1"], label="SOLDE 70% INST-1", kw={"final":True}),
+     ])
+
+inv_half = _mkinv("HALF-1", 20000)
+_run("2 paiements → 1 facture (50% + 50%)",
+     "Deux versements egaux de 10 000 EUR pour une facture de 20 000.",
+     [inv_half], [
+         _mkpay(10000, refs=["HALF-1"], label="VERSEMENT 1/2 HALF-1", kw={"partial":True,"advance":True}),
+         _mkpay(10000, refs=["HALF-1"], label="VERSEMENT 2/2 HALF-1", kw={"final":True}),
+     ])
+
+# ── N payments → M invoices ──
+
+invs_oto = [_mkinv(f"OTO-{i}", 1000*(i+1)) for i in range(3)]
+_run("3 paiements → 3 factures (one-to-one)",
+     "Chaque paiement match exactement 1 facture par reference.",
+     invs_oto, [_mkpay(inv.amount, refs=[inv.reference], label=f"REGLT {inv.reference}")
+                for inv in invs_oto])
+
+invs_grp = [_mkinv(f"GRP-{i}", 2000+i*500) for i in range(4)]
+_run("2 paiements groupes → 4 factures (2+2)",
+     "Paiement 1 couvre factures 0+1, paiement 2 couvre factures 2+3.",
+     invs_grp, [
+         _mkpay(invs_grp[0].amount + invs_grp[1].amount,
+                refs=[invs_grp[0].reference, invs_grp[1].reference],
+                label=f"REGLT {invs_grp[0].reference} {invs_grp[1].reference}"),
+         _mkpay(invs_grp[2].amount + invs_grp[3].amount,
+                refs=[invs_grp[2].reference, invs_grp[3].reference],
+                label=f"REGLT {invs_grp[2].reference} {invs_grp[3].reference}"),
+     ])
+
+invs_mix = [_mkinv(f"MIX-{i:02d}", 1000+i*300) for i in range(10)]
+_run("5 paiements → 10 factures (mix ref+grouped+subset)",
+     "Mix de scenarios : 2 paiements unitaires, 1 paiement 2-refs, 1 paiement 3-refs, "
+     "1 paiement subset sum sans ref.",
+     invs_mix, [
+         _mkpay(invs_mix[0].amount, refs=[invs_mix[0].reference], label=f"PMT {invs_mix[0].reference}"),
+         _mkpay(invs_mix[1].amount, refs=[invs_mix[1].reference], label=f"PMT {invs_mix[1].reference}"),
+         _mkpay(invs_mix[2].amount+invs_mix[3].amount,
+                refs=[invs_mix[2].reference, invs_mix[3].reference],
+                label=f"REGLT {invs_mix[2].reference} {invs_mix[3].reference}"),
+         _mkpay(invs_mix[4].amount+invs_mix[5].amount+invs_mix[6].amount,
+                refs=[invs_mix[4].reference, invs_mix[5].reference, invs_mix[6].reference],
+                label=f"BULK {invs_mix[4].reference} {invs_mix[5].reference} {invs_mix[6].reference}"),
+         _mkpay(invs_mix[7].amount+invs_mix[8].amount+invs_mix[9].amount,
+                refs=[], label="SETTLEMENT OPEN INVOICES"),
+     ])
+
+invs_seq = [_mkinv(f"SEQ-{i:02d}", 1000+i*100) for i in range(10)]
+_run("10 paiements → 10 factures (epuisement sequentiel)",
+     "10 paiements arrivent un par un, chacun consomme une facture. "
+     "Apres le batch, les 10 factures sont soldees.",
+     invs_seq, [_mkpay(inv.amount, refs=[inv.reference], label=f"REGLT {inv.reference}")
+                for inv in invs_seq])
+
+# ── Edge cases ──
+
+invs_same = [_mkinv(f"SAME-{i}", 5000) for i in range(3)]
+_run("3 factures meme montant — seule la ref distingue",
+     "3 factures de 5 000 EUR. Le paiement reference SAME-1 specifiquement.",
+     invs_same, [_mkpay(5000, refs=["SAME-1"], label="PAYMENT SAME-1")])
+
+inv_d1 = _mkinv("D1-F1", 5000, "D1")
+inv_d2 = _mkinv("D2-F1", 7000, "D2")
+_run("2 debiteurs dans le meme batch — pas de cross-match",
+     "D1 paie sa facture de 5 000, D2 paie sa facture de 7 000. Pas de melange.",
+     [inv_d1, inv_d2], [
+         _mkpay(5000, did="D1", refs=["D1-F1"], label="REGLT D1-F1"),
+         _mkpay(7000, did="D2", refs=["D2-F1"], label="REGLT D2-F1"),
+     ])
+
+# Build showcase HTML
+showcase_html = ""
+categories = {
+    "1 paiement → N factures": [],
+    "N paiements → 1 facture": [],
+    "N paiements → M factures": [],
+    "Cas limites": [],
+}
+for title, desc, inv_table, pay_rows, n_inv, n_pay in SCENARIOS:
+    if "→ 1 facture" in title:
+        cat = "N paiements → 1 facture"
+    elif n_pay > 1 and n_inv > 1 and "1 paiement" not in title:
+        cat = "N paiements → M factures" if "meme" not in title and "debiteur" not in title else "Cas limites"
+    elif "1 paiement" in title:
+        cat = "1 paiement → N factures"
+    else:
+        cat = "Cas limites"
+    categories[cat].append((title, desc, inv_table, pay_rows, n_inv, n_pay))
+
+cat_icons = {
+    "1 paiement → N factures": "1→N",
+    "N paiements → 1 facture": "N→1",
+    "N paiements → M factures": "N→M",
+    "Cas limites": "Edge",
+}
+
+for cat_name, items in categories.items():
+    if not items:
+        continue
+    icon = cat_icons.get(cat_name, "")
+    showcase_html += f"""
+    <div style="margin-top:2rem;">
+        <h3 style="display:flex;align-items:center;gap:10px;">
+            <span style="background:var(--indigo);color:white;padding:4px 12px;border-radius:8px;
+                         font-size:0.85rem;font-weight:700;">{icon}</span>
+            {cat_name}
+            <span style="color:var(--slate);font-size:0.85rem;font-weight:400;">({len(items)} scenarios)</span>
+        </h3>
+    </div>"""
+
+    for title, desc, inv_table, pay_rows, n_inv, n_pay in items:
+        showcase_html += f"""
+    <div class="deep" style="margin:12px 0;">
+        <h3 style="margin:0 0 6px;">{title}</h3>
+        <p style="color:var(--slate);font-size:0.88rem;margin-bottom:10px;">{desc}</p>
+        <div style="margin-bottom:10px;">
+            <b>Factures ouvertes ({n_inv}) :</b><br>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px;">{inv_table}</div>
+        </div>
+        <div class="tbl-wrap" style="max-height:300px;overflow-y:auto;">
+        <table class="cat-table">
+        <thead><tr>
+            <th>Paiement</th><th>Montant EUR</th><th>Libelle</th>
+            <th>Couche</th><th>Methode</th><th>Conf.</th>
+            <th>Nb fact.</th><th>Factures matchees</th><th>Flags</th>
+        </tr></thead>
+        <tbody>{pay_rows}</tbody>
+        </table>
+        </div>
+    </div>"""
+
+print(f"  {len(SCENARIOS)} showcase scenarios generated")
+
+
+# ============================================================
 # ASSEMBLE FINAL HTML
 # ============================================================
 total_eur = df["amount"].sum()
@@ -686,6 +947,11 @@ html = f"""<!DOCTYPE html>
   .reco-reason {{ grid-column:2/-1; color:var(--slate); font-size:0.68rem; padding-left:2px;
                   font-style:italic; }}
 
+  /* ─── SHOWCASE ─── */
+  .sc-inv {{ display:inline-block; background:var(--slate-100); border:1px solid var(--slate-200);
+             padding:3px 10px; border-radius:6px; font-family:monospace; font-size:0.78rem;
+             color:var(--slate-800); }}
+
   /* ─── BUTTONS ─── */
   .btn {{ display:inline-flex; align-items:center; gap:6px; padding:8px 18px; border:1px solid var(--slate-200);
           border-radius:8px; cursor:pointer; font-size:0.85rem; font-weight:500; background:white;
@@ -714,6 +980,7 @@ html = f"""<!DOCTYPE html>
   <a href="#debtors">Debiteurs</a>
   <a href="#deep">Deep Dive</a>
   <a href="#catalogue">Catalogue</a>
+  <a href="#showcase">Showcase N&#8594;M</a>
 </div>
 </div>
 
@@ -728,7 +995,7 @@ html = f"""<!DOCTYPE html>
     <span class="tag">{data['n_invoices']} factures</span>
     <span class="tag">{data['n_payments']} paiements</span>
     <span class="tag">12 mois — 2024</span>
-    <span class="tag">74 tests unitaires</span>
+    <span class="tag">127 tests unitaires</span>
   </div>
 </div>
 </div>
@@ -831,6 +1098,14 @@ html = f"""<!DOCTYPE html>
     &#9650; Tout fermer</button>
 </div>
 {catalogue_html}
+
+<!-- SHOWCASE — Scenarios Multi-Factures -->
+<h2 id="showcase">Showcase — Scenarios Complexes (Multi-Factures)</h2>
+<p style="color:var(--slate); margin-bottom:1rem; font-size:0.9rem;">
+  27 scenarios reels executes en direct : 1 paiement &#8594; N factures,
+  N paiements &#8594; 1 facture, N paiements &#8594; M factures, et cas limites.
+</p>
+{showcase_html}
 
 <!-- FOOTER -->
 <div class="footer">
