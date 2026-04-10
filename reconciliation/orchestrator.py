@@ -149,8 +149,11 @@ class ReconciliationOrchestrator:
                 return self._finalize(ctx, result, start_time)
 
             # ── C3: NLP/Fuzzy ──
+            # C3 uses a lower auto-match threshold (0.80) because fuzzy scores
+            # are inherently lower than deterministic C1/C2 scores.
             result = self._run_layer(ctx, 3, lambda: self._nlp_matcher.match(payment, open_invoices))
-            if result and result.confidence >= self.config.orchestrator.auto_match_confidence_threshold:
+            c3_threshold = max(self.config.orchestrator.auto_match_confidence_threshold - 0.10, 0.80)
+            if result and result.confidence >= c3_threshold:
                 return self._finalize(ctx, result, start_time)
 
             # ── C4: ML ──

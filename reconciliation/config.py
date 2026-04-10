@@ -82,7 +82,7 @@ class C2Config:
 @dataclass
 class C3Config:
     """Layer 3 - NLP/Fuzzy configuration."""
-    fuzzy_min_score: float = 0.75
+    fuzzy_min_score: float = 0.60  # lowered from 0.75 to catch medium typos
     tfidf_ngram_range: tuple[int, int] = (2, 4)
     ner_confidence_threshold: float = 0.70
 

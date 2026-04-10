@@ -325,7 +325,10 @@ class NLPFuzzyMatcher:
         return None
 
     def _fuzzy_ref_match(self, payment: Payment, invoices: list[Invoice]) -> MatchResult | None:
-        """C3.1: Fuzzy match payment refs against invoice refs."""
+        """C3.1: Fuzzy match payment refs against invoice refs.
+
+        Includes OCR-correction (O→0, l→1) for common misreads.
+        """
         payment_refs = payment.signals.raw_refs
         if not payment_refs:
             return None
@@ -334,23 +337,34 @@ class NLPFuzzyMatcher:
         best_invoice: Invoice | None = None
         best_ref = ""
 
-        for pref in payment_refs[:5]:  # limit refs to check
-            pref_norm = normalize_ref(pref)
+        def _ocr_fix(s: str) -> str:
+            """Fix common OCR/typo confusions: O→0, l→1."""
+            return s.replace("O", "0").replace("o", "0").replace("l", "1").replace("I", "1")
 
-            # Fast pre-filter: cheap numeric similarity to shortlist candidates
+        for pref in payment_refs[:5]:
+            pref_norm = normalize_ref(pref)
+            pref_ocr = _ocr_fix(pref_norm)  # also try OCR-corrected version
+
             candidates: list[tuple[Invoice, str, float]] = []
             for inv in invoices:
                 if payment.debtor_id and inv.debtor_id != payment.debtor_id:
                     continue
                 inv_ref_norm = normalize_ref(inv.reference)
-                quick = _numeric_ref_similarity(pref_norm, inv_ref_norm)
+                # Check both raw and OCR-corrected
+                quick = max(
+                    _numeric_ref_similarity(pref_norm, inv_ref_norm),
+                    _numeric_ref_similarity(pref_ocr, inv_ref_norm),
+                )
                 if quick > 0.3:
                     candidates.append((inv, inv_ref_norm, quick))
 
-            # Full composite score only on top candidates
             candidates.sort(key=lambda x: x[2], reverse=True)
             for inv, inv_ref_norm, _ in candidates[:10]:
-                score = compute_composite_fuzzy_score(pref_norm, inv_ref_norm)
+                # Score both raw and OCR-corrected, take the best
+                score = max(
+                    compute_composite_fuzzy_score(pref_norm, inv_ref_norm),
+                    compute_composite_fuzzy_score(pref_ocr, inv_ref_norm),
+                )
                 if score > best_score:
                     best_score = score
                     best_invoice = inv
@@ -429,7 +443,7 @@ class NLPFuzzyMatcher:
                 best_confidence = score
                 best_invoice = inv
 
-        if best_invoice and best_confidence >= 0.75:
+        if best_invoice and best_confidence >= 0.60:
             return MatchResult(
                 payment_id=payment.id,
                 invoices=[best_invoice],

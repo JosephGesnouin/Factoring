@@ -264,12 +264,26 @@ class PaymentPreprocessor:
         return re.sub(r"\d+", _pad, ref)
 
     def extract_signals(self, payment: Payment) -> PaymentSignals:
-        """C0.3: Extract preliminary signals from payment."""
+        """C0.3: Extract preliminary signals from payment.
+
+        IMPORTANT: preserves any refs already present in ``payment.signals.raw_refs``
+        (e.g. injected by the caller) so that typo-containing refs are not lost
+        during C0 normalization. New refs extracted from the label are appended.
+        """
         label = payment.label_normalized
         signals = PaymentSignals()
 
-        # Signal 1: Raw references
-        signals.raw_refs = self._extract_refs(label)
+        # Signal 1: Raw references — start with existing refs (preserve caller-injected typos)
+        existing_refs = list(payment.signals.raw_refs) if payment.signals.raw_refs else []
+        new_refs = self._extract_refs(label)
+        # Merge: existing first, then new (dedup)
+        seen = set(existing_refs)
+        merged = list(existing_refs)
+        for r in new_refs:
+            if r not in seen:
+                merged.append(r)
+                seen.add(r)
+        signals.raw_refs = merged
 
         # Also check ISO 20022 fields for references
         iso = payment.iso20022
