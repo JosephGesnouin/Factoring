@@ -173,75 +173,76 @@ WHT_RATES = {
 # Scénarios et leurs poids typiques par "archétype" de débiteur
 ARCHETYPES = {
     "exemplaire": {
-        "C1_EXACT_REF": 0.75, "C1_IBAN_AMOUNT": 0.10, "C2_ROUNDING": 0.05,
-        "C1_FULL_BALANCE": 0.05, "C6_CRYPTIC": 0.05,
+        "C1_EXACT_REF": 0.60, "C1_IBAN_AMOUNT": 0.10, "C2_ROUNDING": 0.05,
+        "C1_FULL_BALANCE": 0.05, "C3_FUZZY": 0.08, "C3_MED": 0.05, "C6_CRYPTIC": 0.07,
     },
     "iso20022": {
-        "C1_ISO20022": 0.55, "C1_EXACT_REF": 0.15, "C2_HT_ERROR": 0.10,
-        "C2_ROUNDING": 0.05, "C3_FUZZY": 0.05, "C6_CRYPTIC": 0.10,
+        "C1_ISO20022": 0.45, "C1_EXACT_REF": 0.10, "C2_HT_ERROR": 0.08,
+        "C2_ROUNDING": 0.05, "C3_FUZZY": 0.08, "C3_MED": 0.07, "C6_CRYPTIC": 0.17,
     },
     "btp_retention": {
-        "C2_RETENTION": 0.45, "C1_EXACT_REF": 0.10, "C2_SUBSET_SUM": 0.15,
-        "C2_INSTALLMENT": 0.10, "C2_ROUNDING": 0.05, "C6_CRYPTIC": 0.15,
+        "C2_RETENTION": 0.35, "C1_EXACT_REF": 0.08, "C2_SUBSET_SUM": 0.12,
+        "C2_INSTALLMENT": 0.08, "C2_ROUNDING": 0.05, "C3_FUZZY": 0.08, "C3_MED": 0.07, "C6_CRYPTIC": 0.17,
     },
     "distribution": {
-        "C2_DISCOUNT": 0.25, "C2_RFA": 0.10, "C2_CREDIT_NOTE": 0.15,
-        "C2_SUBSET_SUM": 0.15, "C1_EXACT_REF": 0.10, "C1_FULL_BALANCE": 0.05,
-        "C2_ROUNDING": 0.05, "C6_CRYPTIC": 0.15,
+        "C2_DISCOUNT": 0.20, "C2_RFA": 0.08, "C2_CREDIT_NOTE": 0.10,
+        "C2_SUBSET_SUM": 0.12, "C1_EXACT_REF": 0.08, "C1_FULL_BALANCE": 0.04,
+        "C2_ROUNDING": 0.04, "C3_FUZZY": 0.08, "C3_MED": 0.06, "C3_HEAVY": 0.03, "C6_CRYPTIC": 0.17,
     },
     "international_fees": {
-        "C2_SWIFT_FEES": 0.35, "C2_WHT": 0.20, "C1_EXACT_REF": 0.15,
-        "C2_ROUNDING": 0.05, "C6_CRYPTIC": 0.25,
+        "C2_SWIFT_FEES": 0.25, "C2_WHT": 0.15, "C1_EXACT_REF": 0.10,
+        "C2_ROUNDING": 0.05, "C3_FUZZY": 0.10, "C3_MED": 0.07, "C6_CRYPTIC": 0.28,
     },
     "multi_facture": {
-        "C2_SUBSET_SUM": 0.40, "C1_EXACT_REF": 0.10, "C1_IBAN_AMOUNT": 0.10,
-        "C3_FUZZY": 0.10, "C6_CRYPTIC": 0.30,
+        "C2_SUBSET_SUM": 0.30, "C1_EXACT_REF": 0.08, "C1_IBAN_AMOUNT": 0.08,
+        "C3_FUZZY": 0.12, "C3_MED": 0.10, "C6_CRYPTIC": 0.32,
     },
     "po_bl": {
-        "C1_PO_MATCH": 0.45, "C1_BL_MATCH": 0.15, "C1_EXACT_REF": 0.15,
-        "C2_ROUNDING": 0.10, "C3_FUZZY": 0.05, "C6_CRYPTIC": 0.10,
+        "C1_PO_MATCH": 0.35, "C1_BL_MATCH": 0.12, "C1_EXACT_REF": 0.12,
+        "C2_ROUNDING": 0.08, "C3_FUZZY": 0.10, "C3_MED": 0.07, "C6_CRYPTIC": 0.16,
     },
     "installments": {
-        "C2_INSTALLMENT": 0.45, "C1_EXACT_REF": 0.20, "C2_ROUNDING": 0.10,
-        "C3_FUZZY": 0.05, "C6_CRYPTIC": 0.20,
+        "C2_INSTALLMENT": 0.35, "C1_EXACT_REF": 0.15, "C2_ROUNDING": 0.08,
+        "C3_FUZZY": 0.10, "C3_MED": 0.07, "C6_CRYPTIC": 0.25,
     },
     "fuzzy_typos": {
-        "C3_FUZZY": 0.45, "C1_EXACT_REF": 0.15, "C2_ROUNDING": 0.10,
-        "C2_SUBSET_SUM": 0.10, "C6_CRYPTIC": 0.20,
+        "C3_FUZZY": 0.25, "C3_MED": 0.20, "C3_HEAVY": 0.10,
+        "C1_EXACT_REF": 0.10, "C2_ROUNDING": 0.05, "C6_CRYPTIC": 0.30,
     },
     "temporel": {
-        "C2_TEMPORAL": 0.35, "C1_EXACT_REF": 0.15, "C2_SUBSET_SUM": 0.15,
-        "C1_FULL_BALANCE": 0.10, "C2_ROUNDING": 0.10, "C6_CRYPTIC": 0.15,
+        "C2_TEMPORAL": 0.25, "C1_EXACT_REF": 0.10, "C2_SUBSET_SUM": 0.12,
+        "C1_FULL_BALANCE": 0.08, "C2_ROUNDING": 0.08, "C3_FUZZY": 0.10, "C3_MED": 0.08, "C6_CRYPTIC": 0.19,
     },
     # Nouveaux archétypes pour plus de diversité
     "chaotique": {
-        "C6_CRYPTIC": 0.50, "C3_FUZZY": 0.20, "C1_EXACT_REF": 0.10,
-        "C2_ROUNDING": 0.10, "C2_SUBSET_SUM": 0.10,
+        "C6_CRYPTIC": 0.35, "C3_FUZZY": 0.15, "C3_MED": 0.15, "C3_HEAVY": 0.10,
+        "C1_EXACT_REF": 0.08, "C2_ROUNDING": 0.07, "C2_SUBSET_SUM": 0.10,
     },
     "grand_compte": {
-        "C1_ISO20022": 0.30, "C2_DISCOUNT": 0.15, "C2_CREDIT_NOTE": 0.10,
-        "C2_SUBSET_SUM": 0.20, "C1_FULL_BALANCE": 0.10,
-        "C2_RFA": 0.05, "C6_CRYPTIC": 0.10,
+        "C1_ISO20022": 0.25, "C2_DISCOUNT": 0.12, "C2_CREDIT_NOTE": 0.08,
+        "C2_SUBSET_SUM": 0.15, "C1_FULL_BALANCE": 0.08,
+        "C2_RFA": 0.05, "C3_FUZZY": 0.08, "C3_MED": 0.06, "C6_CRYPTIC": 0.13,
     },
     "pme_rigoureux": {
-        "C1_EXACT_REF": 0.65, "C2_ROUNDING": 0.10, "C1_IBAN_AMOUNT": 0.10,
-        "C6_CRYPTIC": 0.05, "C3_FUZZY": 0.10,
+        "C1_EXACT_REF": 0.55, "C2_ROUNDING": 0.08, "C1_IBAN_AMOUNT": 0.08,
+        "C3_FUZZY": 0.10, "C3_MED": 0.08, "C6_CRYPTIC": 0.11,
     },
     "africain_mix": {
-        "C2_SWIFT_FEES": 0.25, "C2_WHT": 0.20, "C6_CRYPTIC": 0.25,
-        "C1_EXACT_REF": 0.15, "C2_ROUNDING": 0.05, "C3_FUZZY": 0.10,
+        "C2_SWIFT_FEES": 0.20, "C2_WHT": 0.15, "C6_CRYPTIC": 0.20,
+        "C1_EXACT_REF": 0.10, "C2_ROUNDING": 0.05,
+        "C3_FUZZY": 0.10, "C3_MED": 0.10, "C3_HEAVY": 0.10,
     },
     "asiatique": {
-        "C1_EXACT_REF": 0.20, "C2_SWIFT_FEES": 0.20, "C6_CRYPTIC": 0.30,
-        "C1_ISO20022": 0.10, "C3_FUZZY": 0.10, "C2_ROUNDING": 0.10,
+        "C1_EXACT_REF": 0.15, "C2_SWIFT_FEES": 0.15, "C6_CRYPTIC": 0.20,
+        "C1_ISO20022": 0.08, "C3_FUZZY": 0.12, "C3_MED": 0.12, "C3_HEAVY": 0.08, "C2_ROUNDING": 0.10,
     },
     "americain": {
-        "C1_EXACT_REF": 0.30, "C2_SWIFT_FEES": 0.15, "C1_IBAN_AMOUNT": 0.15,
-        "C2_INSTALLMENT": 0.10, "C6_CRYPTIC": 0.20, "C2_ROUNDING": 0.10,
+        "C1_EXACT_REF": 0.22, "C2_SWIFT_FEES": 0.12, "C1_IBAN_AMOUNT": 0.10,
+        "C2_INSTALLMENT": 0.08, "C3_FUZZY": 0.10, "C3_MED": 0.10, "C6_CRYPTIC": 0.18, "C2_ROUNDING": 0.10,
     },
     "scandinave": {
-        "C1_ISO20022": 0.40, "C1_EXACT_REF": 0.25, "C2_ROUNDING": 0.10,
-        "C2_SUBSET_SUM": 0.10, "C6_CRYPTIC": 0.15,
+        "C1_ISO20022": 0.32, "C1_EXACT_REF": 0.18, "C2_ROUNDING": 0.08,
+        "C2_SUBSET_SUM": 0.08, "C3_FUZZY": 0.10, "C3_MED": 0.08, "C6_CRYPTIC": 0.16,
     },
 }
 
@@ -586,27 +587,8 @@ def generate_credit_notes(
 # 4. GÉNÉRATION DES PAIEMENTS
 # ============================================================
 
-def introduce_typo(ref: str, rng: random.Random) -> str:
-    chars = list(ref)
-    if len(chars) < 4:
-        return ref
-    op = rng.choice(["swap", "drop", "replace_0_O", "extra_digit", "wrong_digit"])
-    if op == "swap" and len(chars) > 5:
-        i = rng.randint(2, len(chars) - 2)
-        chars[i], chars[i+1] = chars[i+1], chars[i]
-    elif op == "drop":
-        chars.pop(rng.randint(2, len(chars)-1))
-    elif op == "replace_0_O":
-        for i, c in enumerate(chars):
-            if c == "0": chars[i] = "O"; break
-    elif op == "extra_digit":
-        chars.insert(rng.randint(2, len(chars)-1), str(rng.randint(0,9)))
-    elif op == "wrong_digit":
-        digs = [i for i,c in enumerate(chars) if c.isdigit()]
-        if digs:
-            i = rng.choice(digs)
-            chars[i] = str((int(chars[i]) + rng.randint(1,3)) % 10)
-    return "".join(chars)
+# 16 mutation operators with 3 severity levels — shared from reconciliation.utils
+from reconciliation.utils import introduce_typo
 
 
 def make_payment_date(due: date, delay: float, pay_day: int | None, rng: random.Random) -> date:
@@ -1034,15 +1016,24 @@ def generate_payments(
 
             # ── C3_FUZZY ──
             elif scenario == "C3_FUZZY":
-                typo = introduce_typo(inv.reference, rng)
-                fuzzy_labels = [
-                    f"REGLT {typo}", f"PAIEMENT {typo}", f"PMT {typo}",
-                    f"PAYMENT {typo}", f"ZAHLUNG {typo}", f"BETALING {typo}",
-                    f"PAGO {typo}", f"PAGAMENTO {typo}", f"VIR {typo}",
-                    f"TRANSFER {typo}", f"ÜBERWEISUNG {typo}",
-                    f"SETTLEMENT {typo}", f"WIRE {typo}",
-                ]
-                p = _mkpay(pid, inv.amount, dt, profile, rng.choice(fuzzy_labels), [typo])
+                typo = introduce_typo(inv.reference, rng, severity="light")
+                lbl = _ref_label(typo, rng, profile.debtor.country or "FR")
+                p = _mkpay(pid, inv.amount, dt, profile, lbl, [typo])
+                payments.append(p); consumed.add(inv.id); idx += 1
+
+            elif scenario == "C3_MED":
+                typo = introduce_typo(inv.reference, rng, severity="medium")
+                amt = inv.amount
+                if rng.random() < 0.3:
+                    amt = round(inv.amount + rng.uniform(-0.99, 0.99), 2)
+                lbl = _ref_label(typo, rng, profile.debtor.country or "FR")
+                p = _mkpay(pid, amt, dt, profile, lbl, [typo])
+                payments.append(p); consumed.add(inv.id); idx += 1
+
+            elif scenario == "C3_HEAVY":
+                typo = introduce_typo(inv.reference, rng, severity="heavy")
+                lbl = _ref_label(typo, rng, profile.debtor.country or "FR")
+                p = _mkpay(pid, inv.amount, dt, profile, lbl, [typo])
                 payments.append(p); consumed.add(inv.id); idx += 1
 
             # ── C6_CRYPTIC ──

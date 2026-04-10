@@ -117,7 +117,7 @@ def create_debtor_profiles() -> list[DebtorProfile]:
         avg_delay_days=2.0, label_style="reference",
         scenario_weights={
             "C1_EXACT_REF": 0.80, "C1_IBAN_AMOUNT": 0.10,
-            "C2_ROUNDING": 0.05, "C6_CRYPTIC": 0.05,
+            "C2_ROUNDING": 0.05, "C3_FUZZY": 0.08, "C3_MED": 0.05, "C6_CRYPTIC": 0.05,
         },
     ))
 
@@ -135,7 +135,7 @@ def create_debtor_profiles() -> list[DebtorProfile]:
         has_po=True, avg_delay_days=15.0, label_style="mixed",
         scenario_weights={
             "C1_EXACT_REF": 0.10, "C2_RETENTION": 0.50, "C2_SUBSET_SUM": 0.15,
-            "C2_ROUNDING": 0.05, "C2_INSTALLMENT": 0.10, "C6_CRYPTIC": 0.10,
+            "C2_ROUNDING": 0.05, "C2_INSTALLMENT": 0.10, "C3_FUZZY": 0.08, "C3_MED": 0.05, "C6_CRYPTIC": 0.10,
         },
     ))
 
@@ -153,7 +153,7 @@ def create_debtor_profiles() -> list[DebtorProfile]:
         avg_delay_days=3.0, label_style="iso20022",
         scenario_weights={
             "C1_ISO20022": 0.55, "C1_EXACT_REF": 0.15, "C2_HT_ERROR": 0.10,
-            "C2_ROUNDING": 0.05, "C3_FUZZY": 0.05, "C6_CRYPTIC": 0.10,
+            "C2_ROUNDING": 0.05, "C3_FUZZY": 0.05, "C3_MED": 0.05, "C6_CRYPTIC": 0.10,
         },
     ))
 
@@ -173,7 +173,7 @@ def create_debtor_profiles() -> list[DebtorProfile]:
         scenario_weights={
             "C1_EXACT_REF": 0.15, "C2_DISCOUNT": 0.25, "C2_RFA": 0.10,
             "C2_CREDIT_NOTE": 0.15, "C2_SUBSET_SUM": 0.15,
-            "C1_FULL_BALANCE": 0.05, "C2_ROUNDING": 0.05, "C6_CRYPTIC": 0.10,
+            "C1_FULL_BALANCE": 0.05, "C2_ROUNDING": 0.05, "C3_FUZZY": 0.08, "C3_MED": 0.05, "C6_CRYPTIC": 0.10,
         },
     ))
 
@@ -191,7 +191,7 @@ def create_debtor_profiles() -> list[DebtorProfile]:
         has_bl=True, avg_delay_days=7.0, label_style="reference",
         scenario_weights={
             "C1_BL_MATCH": 0.40, "C1_EXACT_REF": 0.15, "C1_FULL_BALANCE": 0.15,
-            "C2_ROUNDING": 0.10, "C3_FUZZY": 0.10, "C6_CRYPTIC": 0.10,
+            "C2_ROUNDING": 0.10, "C3_FUZZY": 0.10, "C3_MED": 0.05, "C6_CRYPTIC": 0.10,
         },
     ))
 
@@ -209,7 +209,7 @@ def create_debtor_profiles() -> list[DebtorProfile]:
         avg_delay_days=10.0, label_style="mixed",
         scenario_weights={
             "C2_SWIFT_FEES": 0.35, "C2_WHT": 0.25, "C1_EXACT_REF": 0.15,
-            "C2_ROUNDING": 0.05, "C6_CRYPTIC": 0.20,
+            "C2_ROUNDING": 0.05, "C3_FUZZY": 0.08, "C3_MED": 0.05, "C6_CRYPTIC": 0.20,
         },
     ))
 
@@ -227,7 +227,7 @@ def create_debtor_profiles() -> list[DebtorProfile]:
         avg_delay_days=8.0, label_style="cryptic",
         scenario_weights={
             "C2_SUBSET_SUM": 0.45, "C1_EXACT_REF": 0.10, "C1_IBAN_AMOUNT": 0.10,
-            "C3_FUZZY": 0.10, "C6_CRYPTIC": 0.25,
+            "C3_FUZZY": 0.10, "C3_MED": 0.05, "C6_CRYPTIC": 0.25,
         },
     ))
 
@@ -245,7 +245,7 @@ def create_debtor_profiles() -> list[DebtorProfile]:
         has_po=True, avg_delay_days=4.0, label_style="reference",
         scenario_weights={
             "C1_PO_MATCH": 0.60, "C1_EXACT_REF": 0.15, "C2_ROUNDING": 0.10,
-            "C3_FUZZY": 0.05, "C6_CRYPTIC": 0.10,
+            "C3_FUZZY": 0.05, "C3_MED": 0.05, "C6_CRYPTIC": 0.10,
         },
     ))
 
@@ -263,7 +263,7 @@ def create_debtor_profiles() -> list[DebtorProfile]:
         avg_delay_days=5.0, label_style="reference",
         scenario_weights={
             "C2_INSTALLMENT": 0.45, "C1_EXACT_REF": 0.25,
-            "C2_ROUNDING": 0.10, "C3_FUZZY": 0.05, "C6_CRYPTIC": 0.15,
+            "C2_ROUNDING": 0.10, "C3_FUZZY": 0.05, "C3_MED": 0.05, "C6_CRYPTIC": 0.15,
         },
     ))
 
@@ -281,7 +281,7 @@ def create_debtor_profiles() -> list[DebtorProfile]:
         avg_delay_days=12.0, label_style="cryptic",
         scenario_weights={
             "C2_WHT": 0.30, "C2_SWIFT_FEES": 0.20, "C1_EXACT_REF": 0.10,
-            "C6_CRYPTIC": 0.40,
+            "C3_FUZZY": 0.08, "C3_MED": 0.05, "C6_CRYPTIC": 0.40,
         },
     ))
 
@@ -299,7 +299,7 @@ def create_debtor_profiles() -> list[DebtorProfile]:
         avg_delay_days=6.0, label_style="reference",
         scenario_weights={
             "C3_FUZZY": 0.45, "C1_EXACT_REF": 0.20, "C2_ROUNDING": 0.10,
-            "C2_SUBSET_SUM": 0.10, "C6_CRYPTIC": 0.15,
+            "C2_SUBSET_SUM": 0.10, "C3_MED": 0.05, "C6_CRYPTIC": 0.15,
         },
     ))
 
@@ -318,7 +318,7 @@ def create_debtor_profiles() -> list[DebtorProfile]:
         avg_delay_days=5.0, label_style="period",
         scenario_weights={
             "C2_TEMPORAL": 0.35, "C1_EXACT_REF": 0.15, "C2_SUBSET_SUM": 0.15,
-            "C1_FULL_BALANCE": 0.10, "C2_ROUNDING": 0.10, "C6_CRYPTIC": 0.15,
+            "C1_FULL_BALANCE": 0.10, "C2_ROUNDING": 0.10, "C3_FUZZY": 0.08, "C3_MED": 0.05, "C6_CRYPTIC": 0.15,
         },
     ))
 
@@ -434,35 +434,8 @@ CRYPTIC_TEMPLATES = [
 ]
 
 
-def introduce_typo(ref: str, rng: random.Random) -> str:
-    """Introduit une faute réaliste dans une référence."""
-    ops = ["swap", "drop", "replace_0_O", "extra_digit", "wrong_digit"]
-    op = rng.choice(ops)
-    chars = list(ref)
-    if len(chars) < 4:
-        return ref
-
-    if op == "swap" and len(chars) > 5:
-        i = rng.randint(2, len(chars) - 2)
-        chars[i], chars[i + 1] = chars[i + 1], chars[i]
-    elif op == "drop":
-        i = rng.randint(2, len(chars) - 1)
-        chars.pop(i)
-    elif op == "replace_0_O":
-        for i, c in enumerate(chars):
-            if c == "0":
-                chars[i] = "O"
-                break
-    elif op == "extra_digit":
-        i = rng.randint(2, len(chars) - 1)
-        chars.insert(i, str(rng.randint(0, 9)))
-    elif op == "wrong_digit":
-        digit_positions = [i for i, c in enumerate(chars) if c.isdigit()]
-        if digit_positions:
-            i = rng.choice(digit_positions)
-            chars[i] = str((int(chars[i]) + rng.randint(1, 3)) % 10)
-
-    return "".join(chars)
+# 16 mutation operators with 3 severity levels — shared from reconciliation.utils
+from reconciliation.utils import introduce_typo
 
 
 def make_payment_date(
@@ -766,13 +739,35 @@ def generate_payments(
                 consumed.add(inv.id)
                 idx += 1
 
-            # ── C3_FUZZY (typo dans la ref) ─────────────
+            # ── C3_FUZZY (light typo) ─────────────
             elif scenario == "C3_FUZZY":
-                typo_ref = introduce_typo(inv.reference, rng)
+                typo_ref = introduce_typo(inv.reference, rng, severity="light")
                 label = f"REGLT {typo_ref}"
                 refs = [typo_ref.replace("-", "").upper()]
-                p = _make_payment(pay_id, inv.amount, pay_date, profile, label,
-                                  refs=refs)
+                p = _make_payment(pay_id, inv.amount, pay_date, profile, label, refs=refs)
+                payments.append(p)
+                consumed.add(inv.id)
+                idx += 1
+
+            # ── C3_MED (medium typo: prefix swap, truncation...) ────
+            elif scenario == "C3_MED":
+                typo_ref = introduce_typo(inv.reference, rng, severity="medium")
+                amount = inv.amount
+                if rng.random() < 0.3:
+                    amount = round(inv.amount + rng.uniform(-0.99, 0.99), 2)
+                label = f"PAIEMENT {typo_ref}"
+                refs = [typo_ref.replace("-", "").upper()]
+                p = _make_payment(pay_id, amount, pay_date, profile, label, refs=refs)
+                payments.append(p)
+                consumed.add(inv.id)
+                idx += 1
+
+            # ── C3_HEAVY (severely mangled ref) ────
+            elif scenario == "C3_HEAVY":
+                typo_ref = introduce_typo(inv.reference, rng, severity="heavy")
+                label = f"PMT {typo_ref}"
+                refs = [typo_ref.replace("-", "").upper()]
+                p = _make_payment(pay_id, inv.amount, pay_date, profile, label, refs=refs)
                 payments.append(p)
                 consumed.add(inv.id)
                 idx += 1

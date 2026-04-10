@@ -370,6 +370,39 @@ def create_payments() -> list[Payment]:
                        "attendu": "FAC-2024-403 (O vs 0)"},
         ),
 
+        # ── PAY-15b : C3 -- Ref tronquee (medium) ─────────────────────
+        # Ref tronquee en fin : "FAC-2024-4" au lieu de "FAC-2024-403"
+        Payment(
+            id="PAY-15b", amount=30_000.00, currency=Currency.EUR,
+            date=date(2024, 10, 22),
+            label_raw="PAYMENT FAC-2024-4",
+            iban_source="FR7610011000201234567890188",
+            metadata={"scenario": "C3 Ref tronquee (medium typo)",
+                       "attendu": "FAC-2024-403 (truncate_end)"},
+        ),
+
+        # ── PAY-15c : C3 -- Prefixe change (medium) ──────────────────
+        # "INV-2024-403" au lieu de "FAC-2024-403" (prefix swap)
+        Payment(
+            id="PAY-15c", amount=30_000.00, currency=Currency.EUR,
+            date=date(2024, 10, 23),
+            label_raw="REGLT INV-2024-403",
+            iban_source="FR7610011000201234567890188",
+            metadata={"scenario": "C3 Prefixe change FAC→INV",
+                       "attendu": "FAC-2024-403 (prefix_swap)"},
+        ),
+
+        # ── PAY-15d : C3 -- Ref severement degradee (heavy) ──────────
+        # "FAC/0002O24-4O3" : separateur change, zeros ajoutes, 0→O x2
+        Payment(
+            id="PAY-15d", amount=30_000.00, currency=Currency.EUR,
+            date=date(2024, 10, 24),
+            label_raw="VIRT FAC/0002O24-4O3",
+            iban_source="FR7610011000201234567890188",
+            metadata={"scenario": "C3 Ref heavy (3 mutations)",
+                       "attendu": "FAC-2024-403 (sep+zeros+0→O)"},
+        ),
+
         # ── PAY-16 : C2 -- Pattern temporel ────────────────────────────
         Payment(
             id="PAY-16", amount=20_000.00, currency=Currency.EUR,
