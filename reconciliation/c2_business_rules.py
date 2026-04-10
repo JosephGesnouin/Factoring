@@ -319,48 +319,163 @@ class BusinessRuleMatcher:
           5. Sum with retention (sum x (1-retention%))
           6. Sum with WHT (sum x (1-wht_rate))
           7. Sum minus credit note (sum - avoir)
+
+        Also tries period-based grouping:
+          8. All invoices from month M
+          9. All invoices from months M-1..M (2-month window)
+         10. All invoices from months M-2..M (quarter)
+         11. All invoices from months M-5..M (semester)
+        Each period group is tested with the same 7 tolerance hypotheses.
         """
         amount = payment.amount
         max_n = self.config.subset_sum_max_invoices
-        sorted_invs = sorted(invoices, key=lambda i: i.amount, reverse=True)[:max_n]
-
-        if len(sorted_invs) < 2:
-            return None
-
         debtor = payment.debtor
 
-        # Build hypotheses: (target_sum, tol_cents, confidence, flags, rule_id)
+        # ── Phase 1: try full portfolio (up to max_n) ──
+        sorted_invs = sorted(invoices, key=lambda i: i.amount, reverse=True)[:max_n]
+        if len(sorted_invs) >= 2:
+            result = self._try_all_hypotheses(amount, sorted_invs, payment, debtor)
+            if result:
+                return result
+
+        # ── Phase 2: try period-based groups (M factures sur X mois) ──
+        if payment.date:
+            result = self._try_period_groups(amount, invoices, payment, debtor)
+            if result:
+                return result
+
+        return None
+
+    def _try_period_groups(
+        self, amount: float, invoices: list[Invoice], payment: Payment, debtor
+    ) -> MatchResult | None:
+        """Try matching payment against groups of invoices by issue month.
+
+        Tests sliding windows of 1, 2, 3, 6 months backwards from payment date.
+        For each window, collects all invoices in that period and tries
+        the full hypothesis engine on them.
+        """
+        if not payment.date:
+            return None
+
+        from datetime import date as _date
+
+        # Group invoices by (year, month)
+        by_month: dict[tuple[int, int], list[Invoice]] = {}
+        for inv in invoices:
+            if inv.issue_date:
+                key = (inv.issue_date.year, inv.issue_date.month)
+                by_month.setdefault(key, []).append(inv)
+
+        if not by_month:
+            return None
+
+        pay_year = payment.date.year
+        pay_month = payment.date.month
+
+        # Try windows: 1 month, 2 months, 3 months (quarter), 6 months (semester)
+        for window_size in [1, 2, 3, 6]:
+            group: list[Invoice] = []
+            months_covered = []
+            for offset in range(window_size):
+                m = pay_month - offset
+                y = pay_year
+                while m <= 0:
+                    m += 12
+                    y -= 1
+                key = (y, m)
+                if key in by_month:
+                    group.extend(by_month[key])
+                    months_covered.append(key)
+
+            # Also check 1-2 months before the window (debtor pays late)
+            for extra in [1, 2]:
+                m = pay_month - window_size - extra + 1
+                y = pay_year
+                while m <= 0:
+                    m += 12
+                    y -= 1
+                key = (y, m)
+                if key in by_month:
+                    group.extend(by_month[key])
+                    months_covered.append(key)
+
+            if len(group) < 2:
+                continue
+
+            # Deduplicate
+            seen_ids = set()
+            unique_group = []
+            for inv in group:
+                if inv.id not in seen_ids:
+                    unique_group.append(inv)
+                    seen_ids.add(inv.id)
+
+            if len(unique_group) < 2 or len(unique_group) > self.config.subset_sum_max_invoices:
+                unique_group = sorted(unique_group, key=lambda i: i.amount, reverse=True)[:self.config.subset_sum_max_invoices]
+
+            # First: check if ALL invoices in the group match exactly
+            group_total = sum(inv.amount for inv in unique_group)
+            if abs(amount - group_total) < 1.0 and len(unique_group) >= 2:
+                period_str = "+".join(f"{y}-{m:02d}" for y, m in sorted(set(months_covered)))
+                return MatchResult(
+                    payment_id=payment.id,
+                    invoices=unique_group,
+                    method=MatchMethod.C2_SUBSET_SUM,
+                    confidence=0.93,
+                    allocated={inv.reference: inv.amount for inv in unique_group},
+                    flags=["SUBSET_SUM_PERIOD", f"MONTHS_{period_str}",
+                           f"{len(unique_group)}_INVOICES"],
+                    rule_id="R-SS-PERIOD",
+                )
+
+            # Then: try combinatorial search within this period group
+            result = self._try_all_hypotheses(
+                amount, unique_group, payment,
+                debtor, confidence_penalty=0.02,
+                extra_flags=["PERIOD_GROUP", f"WINDOW_{window_size}M"],
+            )
+            if result:
+                return result
+
+        return None
+
+    def _try_all_hypotheses(
+        self, amount: float, invoices: list[Invoice], payment: Payment,
+        debtor, confidence_penalty: float = 0.0, extra_flags: list[str] | None = None,
+    ) -> MatchResult | None:
+        """Run all 7 tolerance hypotheses against a set of invoices."""
         hypotheses = [
             (amount, 1, 0.94, ["SUBSET_SUM_EXACT"], "R-SS-EXACT"),
             (amount, 100, 0.92, ["SUBSET_SUM_ROUNDING"], "R-SS-ROUND"),
         ]
 
-        # SWIFT fees: payment = sum - fee => sum = payment + fee
+        # SWIFT fees
         if debtor and debtor.country and debtor.country not in _SEPA_COUNTRIES:
             for fee in [15, 20, 25, 30, 35]:
                 hypotheses.append(
                     (amount + fee, 100, 0.90, ["SUBSET_SUM_SWIFT", f"FEE_{fee}EUR"], "R-SS-SWIFT"))
 
-        # Escompte: payment = sum * (1-disc) => sum = payment / (1-disc)
+        # Escompte
         if debtor and debtor.discount_rate > 0:
             hypotheses.append(
                 (amount / (1 - debtor.discount_rate), 100, 0.91,
                  ["SUBSET_SUM_DISCOUNT", f"ESC_{debtor.discount_rate*100:.0f}PCT"], "R-SS-DISC"))
 
-        # Retention: payment = sum * (1-ret) => sum = payment / (1-ret)
+        # Retention
         if debtor and debtor.retention_rate > 0:
             hypotheses.append(
                 (amount / (1 - debtor.retention_rate), 100, 0.89,
                  ["SUBSET_SUM_RETENTION", f"RET_{debtor.retention_rate*100:.0f}PCT"], "R-SS-RET"))
 
-        # WHT: payment = sum * (1-wht)
+        # WHT
         if debtor and debtor.country in _WITHHOLDING_TAX_RATES:
             rate = _WITHHOLDING_TAX_RATES[debtor.country]
             hypotheses.append(
                 (amount / (1 - rate), 100, 0.88,
                  ["SUBSET_SUM_WHT", f"WHT_{rate*100:.0f}PCT"], "R-SS-WHT"))
 
-        # Credit note: payment = sum_inv - credit => sum_inv = payment + credit
+        # Credit notes
         if debtor and debtor.open_credits:
             for cn in debtor.open_credits[:5]:
                 hypotheses.append(
@@ -368,7 +483,9 @@ class BusinessRuleMatcher:
                      ["SUBSET_SUM_CREDIT", f"DED_{cn.reference}"], "R-SS-CN"))
 
         for target, tol, conf, flags, rid in hypotheses:
-            r = self._find_subset(target, tol, sorted_invs, payment, conf, flags, rid)
+            adjusted_conf = conf - confidence_penalty
+            all_flags = flags + (extra_flags or [])
+            r = self._find_subset(target, tol, invoices, payment, adjusted_conf, all_flags, rid)
             if r:
                 return r
         return None
