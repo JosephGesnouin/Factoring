@@ -174,10 +174,13 @@ with st.sidebar:
     page = st.radio("Navigation", [
         "Executive Summary",
         "Architecture",
+        "Factures",
+        "Paiements",
         "Simulation Live",
         "Analyse Debiteurs",
         "Paiements par Couche",
         "Revue Humaine",
+        "Mapping Complet",
         "Deep Dive",
     ], label_visibility="collapsed")
     st.divider()
@@ -329,7 +332,136 @@ elif page == "Architecture":
 
 
 # =====================================================================
-# PAGE 3 — SIMULATION LIVE
+# PAGE — FACTURES (toutes les factures avec contenu complet)
+# =====================================================================
+elif page == "Factures":
+    st.markdown("""
+    <div class="hero">
+        <h1>Portefeuille Factures</h1>
+        <div class="sub">Toutes les factures ouvertes avec leur contenu complet</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    invoices = data["invoices"]
+
+    # Build invoice DataFrame
+    inv_rows = []
+    for inv in invoices:
+        inv_rows.append({
+            "ID": inv.id, "Reference": inv.reference, "Debiteur": inv.debtor_id,
+            "Montant TTC": inv.amount, "Montant HT": inv.amount_ht,
+            "Devise": inv.currency.value, "Date emission": inv.issue_date,
+            "Date echeance": inv.due_date, "PO": inv.po_number or "",
+            "BL": inv.bl_number or "", "Statut": inv.status,
+            "Lot": str(inv.batch_date) if inv.batch_date else "",
+        })
+    inv_df = pd.DataFrame(inv_rows)
+
+    # KPIs
+    st.markdown(f"""
+    <div class="kpi-grid">
+        <div class="kpi-card success">
+            <div class="value" style="color:{C_GREEN}">{len(invoices):,}</div>
+            <div class="label">Factures</div>
+        </div>
+        <div class="kpi-card">
+            <div class="value">{inv_df['Montant TTC'].sum()/1e6:.1f}M</div>
+            <div class="label">Volume TTC</div>
+        </div>
+        <div class="kpi-card">
+            <div class="value">{inv_df['Debiteur'].nunique()}</div>
+            <div class="label">Debiteurs</div>
+        </div>
+        <div class="kpi-card">
+            <div class="value">{len([i for i in invoices if i.po_number])}</div>
+            <div class="label">Avec PO</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Filters
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        deb_filter = st.multiselect("Debiteur", sorted(inv_df["Debiteur"].unique()), key="inv_deb")
+    with col2:
+        min_amt, max_amt = float(inv_df["Montant TTC"].min()), float(inv_df["Montant TTC"].max())
+        amt_range = st.slider("Montant TTC", min_amt, max_amt, (min_amt, max_amt), key="inv_amt")
+    with col3:
+        has_po = st.checkbox("Avec PO uniquement", key="inv_po")
+
+    show = inv_df.copy()
+    if deb_filter: show = show[show["Debiteur"].isin(deb_filter)]
+    show = show[(show["Montant TTC"] >= amt_range[0]) & (show["Montant TTC"] <= amt_range[1])]
+    if has_po: show = show[show["PO"] != ""]
+
+    st.markdown(f'<div class="section-h">{len(show):,} factures</div>', unsafe_allow_html=True)
+
+    display = show.copy()
+    display["Montant TTC"] = display["Montant TTC"].apply(lambda x: f"{x:,.2f}")
+    display["Montant HT"] = display["Montant HT"].apply(lambda x: f"{x:,.2f}")
+    st.dataframe(display, use_container_width=True, height=600, hide_index=True)
+
+
+# =====================================================================
+# PAGE — PAIEMENTS (tous les paiements avec contenu complet)
+# =====================================================================
+elif page == "Paiements":
+    st.markdown("""
+    <div class="hero">
+        <h1>Flux Paiements</h1>
+        <div class="sub">Tous les paiements recus avec leur libelle complet et leur statut</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # KPIs
+    st.markdown(f"""
+    <div class="kpi-grid">
+        <div class="kpi-card primary">
+            <div class="value">{len(df):,}</div>
+            <div class="label">Paiements</div>
+        </div>
+        <div class="kpi-card success">
+            <div class="value">{df['matched'].sum():,}</div>
+            <div class="label">Reconcilies</div>
+        </div>
+        <div class="kpi-card danger">
+            <div class="value">{(~df['matched']).sum():,}</div>
+            <div class="label">Non reconcilies</div>
+        </div>
+        <div class="kpi-card">
+            <div class="value">{df['amount'].sum()/1e6:.1f}M</div>
+            <div class="label">Volume EUR</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        status_filter = st.radio("Statut", ["Tous", "Reconcilies", "Non reconcilies"], horizontal=True, key="pay_status")
+    with col2:
+        pay_deb = st.multiselect("Debiteur", sorted(df["debtor_name"].unique()), key="pay_deb")
+    with col3:
+        pay_country = st.multiselect("Pays", sorted(df["country"].unique()), key="pay_country")
+
+    show = df.copy()
+    if status_filter == "Reconcilies": show = show[show["matched"]]
+    elif status_filter == "Non reconcilies": show = show[~show["matched"]]
+    if pay_deb: show = show[show["debtor_name"].isin(pay_deb)]
+    if pay_country: show = show[show["country"].isin(pay_country)]
+
+    st.markdown(f'<div class="section-h">{len(show):,} paiements</div>', unsafe_allow_html=True)
+
+    display = show[["payment_id","date","amount","debtor_name","country","label",
+                     "layer_name","method","confidence","flags","invoices_matched"]].copy()
+    display["amount"] = display["amount"].apply(lambda x: f"{x:,.2f}")
+    display["confidence"] = display["confidence"].apply(lambda x: f"{x:.0%}" if x > 0 else "---")
+    display.columns = ["ID","Date","Montant","Debiteur","Pays","Libelle complet",
+                        "Couche","Methode","Conf.","Flags","Factures matchees"]
+    st.dataframe(display, use_container_width=True, height=600, hide_index=True)
+
+
+# =====================================================================
+# PAGE — SIMULATION LIVE
 # =====================================================================
 elif page == "Simulation Live":
     st.markdown("""
@@ -827,7 +959,145 @@ elif page == "Revue Humaine":
 
 
 # =====================================================================
-# PAGE 7 — DEEP DIVE
+# PAGE — MAPPING COMPLET (paiement ↔ facture avec tout le detail)
+# =====================================================================
+elif page == "Mapping Complet":
+    st.markdown("""
+    <div class="hero">
+        <h1>Mapping Complet Paiement-Facture</h1>
+        <div class="sub">Vue exhaustive de chaque reconciliation : paiement, facture(s) matchee(s), methode, allocation</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Build full mapping table
+    inv_lookup = {inv.reference: inv for inv in data["invoices"]}
+    ground_truth = data.get("ground_truth", {})
+
+    mapping_rows = []
+    for ctx in data["results"]:
+        p = ctx.payment
+        fm = ctx.final_match
+        if fm:
+            for inv in fm.invoices:
+                alloc = fm.allocated.get(inv.reference, 0)
+                mapping_rows.append({
+                    "Paiement": p.id,
+                    "Date paiement": p.date,
+                    "Montant paye": p.amount,
+                    "Libelle": p.label_raw[:80] if p.label_raw else "",
+                    "Debiteur": p.debtor.name[:25] if p.debtor else p.debtor_id,
+                    "Pays": p.debtor.country if p.debtor else "",
+                    "Facture": inv.reference,
+                    "Montant facture": inv.amount,
+                    "Montant HT": inv.amount_ht,
+                    "Date emission": inv.issue_date,
+                    "Date echeance": inv.due_date,
+                    "PO": inv.po_number or "",
+                    "BL": inv.bl_number or "",
+                    "Allocation": alloc,
+                    "Ecart": round(p.amount - sum(fm.allocated.values()), 2) if len(fm.invoices) == 1 else 0,
+                    "Couche": f"C{fm.layer}",
+                    "Methode": fm.method.value,
+                    "Confiance": fm.confidence,
+                    "Flags": ", ".join(fm.flags) if fm.flags else "",
+                    "Nb factures": len(fm.invoices),
+                    "Statut": "AUTO",
+                })
+        else:
+            # Non-reconcilie
+            true_ref = ground_truth.get(p.id, "")
+            mapping_rows.append({
+                "Paiement": p.id,
+                "Date paiement": p.date,
+                "Montant paye": p.amount,
+                "Libelle": p.label_raw[:80] if p.label_raw else "",
+                "Debiteur": p.debtor.name[:25] if p.debtor else p.debtor_id,
+                "Pays": p.debtor.country if p.debtor else "",
+                "Facture": true_ref if true_ref else "---",
+                "Montant facture": inv_lookup[true_ref].amount if true_ref and true_ref in inv_lookup else 0,
+                "Montant HT": inv_lookup[true_ref].amount_ht if true_ref and true_ref in inv_lookup else 0,
+                "Date emission": inv_lookup[true_ref].issue_date if true_ref and true_ref in inv_lookup else None,
+                "Date echeance": inv_lookup[true_ref].due_date if true_ref and true_ref in inv_lookup else None,
+                "PO": "", "BL": "",
+                "Allocation": 0,
+                "Ecart": 0,
+                "Couche": "C6",
+                "Methode": "HUMAN_REVIEW",
+                "Confiance": 0,
+                "Flags": "",
+                "Nb factures": 0,
+                "Statut": "REVUE HUMAINE",
+            })
+
+    map_df = pd.DataFrame(mapping_rows)
+
+    # KPIs
+    auto_map = map_df[map_df["Statut"] == "AUTO"]
+    c6_map = map_df[map_df["Statut"] == "REVUE HUMAINE"]
+
+    st.markdown(f"""
+    <div class="kpi-grid">
+        <div class="kpi-card primary">
+            <div class="value">{len(map_df):,}</div>
+            <div class="label">Lignes de mapping</div>
+        </div>
+        <div class="kpi-card success">
+            <div class="value">{len(auto_map):,}</div>
+            <div class="label">Reconciliations auto</div>
+        </div>
+        <div class="kpi-card danger">
+            <div class="value">{len(c6_map):,}</div>
+            <div class="label">En attente</div>
+        </div>
+        <div class="kpi-card">
+            <div class="value">{auto_map['Allocation'].sum()/1e6:.1f}M</div>
+            <div class="label">Montant alloue</div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Filters
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        map_status = st.radio("Statut", ["Tous", "AUTO", "REVUE HUMAINE"], horizontal=True, key="map_st")
+    with col2:
+        map_layer = st.multiselect("Couche", sorted(map_df["Couche"].unique()), key="map_layer")
+    with col3:
+        map_method = st.multiselect("Methode", sorted(map_df["Methode"].unique()), key="map_method")
+
+    show = map_df.copy()
+    if map_status != "Tous": show = show[show["Statut"] == map_status]
+    if map_layer: show = show[show["Couche"].isin(map_layer)]
+    if map_method: show = show[show["Methode"].isin(map_method)]
+
+    st.markdown(f'<div class="section-h">{len(show):,} lignes de mapping</div>', unsafe_allow_html=True)
+
+    # Format display
+    display = show.copy()
+    display["Montant paye"] = display["Montant paye"].apply(lambda x: f"{x:,.2f}")
+    display["Montant facture"] = display["Montant facture"].apply(lambda x: f"{x:,.2f}" if x else "---")
+    display["Montant HT"] = display["Montant HT"].apply(lambda x: f"{x:,.2f}" if x else "---")
+    display["Allocation"] = display["Allocation"].apply(lambda x: f"{x:,.2f}" if x else "---")
+    display["Confiance"] = display["Confiance"].apply(lambda x: f"{x:.0%}" if x > 0 else "---")
+
+    def color_status(val):
+        if val == "AUTO": return "background-color: #d1fae5; color: #065f46"
+        if val == "REVUE HUMAINE": return "background-color: #fee2e2; color: #991b1b"
+        return ""
+
+    st.dataframe(
+        display.style.applymap(color_status, subset=["Statut"]),
+        use_container_width=True, height=600, hide_index=True,
+    )
+
+    # Export
+    st.markdown('<div class="section-h">Export</div>', unsafe_allow_html=True)
+    csv = show.to_csv(index=False)
+    st.download_button("Telecharger le mapping complet (CSV)", csv, "mapping_complet.csv", "text/csv")
+
+
+# =====================================================================
+# PAGE — DEEP DIVE
 # =====================================================================
 elif page == "Deep Dive":
     st.markdown("""
