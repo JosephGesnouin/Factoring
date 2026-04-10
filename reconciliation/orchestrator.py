@@ -157,10 +157,19 @@ class ReconciliationOrchestrator:
                 return self._finalize(ctx, result, start_time)
 
             # ── C4: ML ──
+            # C4 uses its own confidence_threshold (default 0.85) since ML scores
+            # are calibrated differently from deterministic rules.
             if self._ml_matcher.is_trained:
                 result = self._run_layer(ctx, 4, lambda: self._ml_matcher.match(payment, open_invoices))
-                if result and result.confidence >= self.config.orchestrator.auto_match_confidence_threshold:
+                c4_threshold = self.config.c4.confidence_threshold
+                if result and result.confidence >= c4_threshold:
                     return self._finalize(ctx, result, start_time)
+            else:
+                ctx.layers_attempted.append(4)
+                ctx.processing_log.append({
+                    "layer": 4, "time_ms": 0, "event": "SKIPPED",
+                    "detail": "C4 model not trained (call MLMatcher.train() first)",
+                })
 
             # ── C5: LLM ──
             result = self._run_layer(

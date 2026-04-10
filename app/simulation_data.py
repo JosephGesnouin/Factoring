@@ -203,6 +203,78 @@ def _lbl(ref, country, rng):
 # GENERATEUR PRINCIPAL — 10k+ paiements
 # ============================================================
 
+def _train_c4(orch, payments, invoices, ground_truth, consumed, rng):
+    """Auto-train the C4 ML model from simulation ground truth.
+
+    Uses consumed invoice IDs as positive pairs and random mismatches
+    as negatives. Trains on first 20% of payments, tests on rest.
+    """
+    try:
+        import numpy as np
+        from reconciliation.c4_ml import compute_features, EnsembleModel
+    except ImportError as e:
+        print(f"  C4 training skipped (missing deps: {e})")
+        return
+
+    # Build training pairs from ground truth
+    inv_by_id = {inv.id: inv for inv in invoices}
+    inv_by_ref = {inv.reference: inv for inv in invoices}
+    inv_by_debtor = defaultdict(list)
+    for inv in invoices:
+        inv_by_debtor[inv.debtor_id].append(inv)
+
+    X_list, y_list = [], []
+    feature_names = EnsembleModel.FEATURE_NAMES
+
+    # Use first N payments that have known matching invoices
+    training_payments = [p for p in payments[:len(payments)//3]
+                         if p.signals.raw_refs]
+    n_train = min(len(training_payments), 2000)
+    sampled = rng.sample(training_payments, n_train) if len(training_payments) > n_train else training_payments
+
+    for pay in sampled:
+        # Find the matched invoice by ref
+        matched_inv = None
+        for ref in pay.signals.raw_refs:
+            for inv in invoices:
+                from reconciliation.utils import normalize_ref
+                if normalize_ref(inv.reference) == normalize_ref(ref):
+                    matched_inv = inv
+                    break
+            if matched_inv:
+                break
+
+        if not matched_inv:
+            continue
+
+        # Positive pair
+        feat_pos = compute_features(pay, matched_inv)
+        X_list.append([feat_pos.get(n, 0.0) for n in feature_names])
+        y_list.append(1)
+
+        # Negative pairs (2-3 random non-matching invoices from same debtor)
+        debtor_invs = inv_by_debtor.get(pay.debtor_id, [])
+        negatives = [inv for inv in debtor_invs if inv.id != matched_inv.id]
+        for neg_inv in rng.sample(negatives, min(2, len(negatives))):
+            feat_neg = compute_features(pay, neg_inv)
+            X_list.append([feat_neg.get(n, 0.0) for n in feature_names])
+            y_list.append(0)
+
+    if len(X_list) < 50:
+        print(f"  C4 training skipped (insufficient data: {len(X_list)} samples)")
+        return
+
+    X = np.array(X_list)
+    y = np.array(y_list)
+    print(f"  C4 training: {len(X)} samples ({y.sum()} positive, {len(y)-y.sum()} negative)")
+
+    metrics = orch._ml_matcher.train(X, y)
+    if "error" in metrics:
+        print(f"  C4 training failed: {metrics['error']}")
+    else:
+        print(f"  C4 trained: F1={metrics.get('f1_mean',0):.3f} (+/- {metrics.get('f1_std',0):.3f})")
+
+
 def generate_all(seed=42, months=range(1,13), target_payments=10000):
     """Generate massive dataset: ~10k+ payments."""
     rng = random.Random(seed)
@@ -467,10 +539,14 @@ def generate_all(seed=42, months=range(1,13), target_payments=10000):
     payments.sort(key=lambda pp: pp.date or date(year,1,1))
     print(f"  Generated: {len(invoices)} invoices, {len(payments)} payments")
 
-    # ── Run orchestrator ──
-    print(f"  Running orchestrator on {len(payments)} payments...")
+    # ── Auto-train C4 ML model from generated ground truth ──
+    print(f"  Training C4 ML model...")
     config = ReconciliationConfig()
     orch = ReconciliationOrchestrator(config)
+    _train_c4(orch, payments, invoices, ground_truth, consumed, rng)
+
+    # ── Run orchestrator ──
+    print(f"  Running orchestrator on {len(payments)} payments...")
     iban_map = {d.iban: d.id for d in debtors}
     inv_by_d2 = defaultdict(list)
     for inv in invoices: inv_by_d2[inv.debtor_id].append(inv)

@@ -237,6 +237,9 @@ class TFIDFMatcher:
             logger.warning("scikit-learn not available, TF-IDF disabled")
             return
 
+        if not invoices:
+            return
+
         docs = []
         self._invoice_ids = []
         for inv in invoices:
@@ -244,11 +247,16 @@ class TFIDFMatcher:
             docs.append(text)
             self._invoice_ids.append(inv.id)
 
-        self._vectorizer = TfidfVectorizer(
-            analyzer="char",
-            ngram_range=self.ngram_range,
-        )
-        self._matrix = self._vectorizer.fit_transform(docs)
+        try:
+            self._vectorizer = TfidfVectorizer(
+                analyzer="char",
+                ngram_range=self.ngram_range,
+            )
+            self._matrix = self._vectorizer.fit_transform(docs)
+        except ValueError:
+            # Empty vocabulary (e.g. single very short doc)
+            self._vectorizer = None
+            self._matrix = None
 
     def find_similar(self, query: str, top_k: int = 5) -> list[tuple[str, float]]:
         """Find top-k similar invoices by TF-IDF cosine similarity."""
