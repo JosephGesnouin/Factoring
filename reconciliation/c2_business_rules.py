@@ -309,156 +309,156 @@ class BusinessRuleMatcher:
     def _rule_subset_sum(
         self, payment: Payment, invoices: list[Invoice]
     ) -> MatchResult | None:
+        """Find a combination of invoices whose sum matches the payment.
+
+        Tries multiple hypotheses in order of confidence:
+          1. Exact sum (+-0.01 EUR)
+          2. Sum with rounding (+-1 EUR)
+          3. Sum minus SWIFT fees (up to -35 EUR for non-SEPA)
+          4. Sum with escompte (sum x (1-discount%))
+          5. Sum with retention (sum x (1-retention%))
+          6. Sum with WHT (sum x (1-wht_rate))
+          7. Sum minus credit note (sum - avoir)
+        """
         amount = payment.amount
         max_n = self.config.subset_sum_max_invoices
-
-        # Sort by amount descending for better pruning
         sorted_invs = sorted(invoices, key=lambda i: i.amount, reverse=True)[:max_n]
 
         if len(sorted_invs) < 2:
             return None
 
-        # Strategy 1: Two-sum (fastest, most common case)
-        result = self._two_sum_match(amount, sorted_invs, payment)
-        if result:
-            return result
+        debtor = payment.debtor
 
-        # Strategy 2: Greedy largest-first
-        result = self._greedy_subset(amount, sorted_invs, payment)
-        if result:
-            return result
+        # Build hypotheses: (target_sum, tol_cents, confidence, flags, rule_id)
+        hypotheses = [
+            (amount, 1, 0.94, ["SUBSET_SUM_EXACT"], "R-SS-EXACT"),
+            (amount, 100, 0.92, ["SUBSET_SUM_ROUNDING"], "R-SS-ROUND"),
+        ]
 
-        # Strategy 3: Meet-in-the-middle DP — handles up to ~24 invoices
-        # in reasonable time (vs 12 for naive brute-force).
-        if len(sorted_invs) <= 24:
-            result = self._exact_subset_sum(amount, sorted_invs, payment)
-            if result:
-                return result
+        # SWIFT fees: payment = sum - fee => sum = payment + fee
+        if debtor and debtor.country and debtor.country not in _SEPA_COUNTRIES:
+            for fee in [15, 20, 25, 30, 35]:
+                hypotheses.append(
+                    (amount + fee, 100, 0.90, ["SUBSET_SUM_SWIFT", f"FEE_{fee}EUR"], "R-SS-SWIFT"))
 
+        # Escompte: payment = sum * (1-disc) => sum = payment / (1-disc)
+        if debtor and debtor.discount_rate > 0:
+            hypotheses.append(
+                (amount / (1 - debtor.discount_rate), 100, 0.91,
+                 ["SUBSET_SUM_DISCOUNT", f"ESC_{debtor.discount_rate*100:.0f}PCT"], "R-SS-DISC"))
+
+        # Retention: payment = sum * (1-ret) => sum = payment / (1-ret)
+        if debtor and debtor.retention_rate > 0:
+            hypotheses.append(
+                (amount / (1 - debtor.retention_rate), 100, 0.89,
+                 ["SUBSET_SUM_RETENTION", f"RET_{debtor.retention_rate*100:.0f}PCT"], "R-SS-RET"))
+
+        # WHT: payment = sum * (1-wht)
+        if debtor and debtor.country in _WITHHOLDING_TAX_RATES:
+            rate = _WITHHOLDING_TAX_RATES[debtor.country]
+            hypotheses.append(
+                (amount / (1 - rate), 100, 0.88,
+                 ["SUBSET_SUM_WHT", f"WHT_{rate*100:.0f}PCT"], "R-SS-WHT"))
+
+        # Credit note: payment = sum_inv - credit => sum_inv = payment + credit
+        if debtor and debtor.open_credits:
+            for cn in debtor.open_credits[:5]:
+                hypotheses.append(
+                    (amount + cn.amount, 100, 0.90,
+                     ["SUBSET_SUM_CREDIT", f"DED_{cn.reference}"], "R-SS-CN"))
+
+        for target, tol, conf, flags, rid in hypotheses:
+            r = self._find_subset(target, tol, sorted_invs, payment, conf, flags, rid)
+            if r:
+                return r
         return None
 
-    def _greedy_subset(
-        self, target: float, invoices: list[Invoice], payment: Payment
-    ) -> MatchResult | None:
-        selected: list[Invoice] = []
-        remaining = target
+    def _find_subset(self, target, tol_cents, invoices, payment, conf, flags, rid):
+        """Try two-sum, greedy, then DP to find a subset summing to target."""
+        r = self._two_sum_tol(target, tol_cents, invoices, payment, conf, flags, rid)
+        if r: return r
+        r = self._greedy_subset(target, invoices, payment, tol_cents, conf, flags, rid)
+        if r: return r
+        if len(invoices) <= 24:
+            r = self._dp_subset(target, tol_cents, invoices, payment, conf, flags, rid)
+            if r: return r
+        return None
 
+    def _greedy_subset(self, target, invoices, payment, tol_cents=1, conf=0.92, flags=None, rid="R-SS-GREEDY"):
+        selected, remaining = [], target
         for inv in invoices:
             if inv.amount <= remaining + 0.01:
                 selected.append(inv)
                 remaining -= inv.amount
-
-            if abs(remaining) < 0.01:
-                # Single-invoice matches belong to C1, not subset-sum.
-                if len(selected) < 2:
-                    return None
-                return MatchResult(
-                    payment_id=payment.id,
-                    invoices=selected,
-                    method=MatchMethod.C2_SUBSET_SUM,
-                    confidence=0.92,
-                    allocated={inv.reference: inv.amount for inv in selected},
-                    flags=["SUBSET_SUM_GREEDY"],
-                    rule_id="R-SS-GREEDY",
-                )
-
+            if abs(remaining) * 100 <= tol_cents and len(selected) >= 2:
+                return MatchResult(payment_id=payment.id, invoices=selected,
+                    method=MatchMethod.C2_SUBSET_SUM, confidence=conf,
+                    allocated={i.reference: i.amount for i in selected},
+                    flags=list(flags or []), rule_id=rid)
         return None
 
-    def _exact_subset_sum(
-        self, target: float, invoices: list[Invoice], payment: Payment
-    ) -> MatchResult | None:
-        """Meet-in-the-middle subset-sum, O(2^(n/2)) vs O(2^n) brute force.
-
-        Splits the invoice set in two halves, enumerates all partial sums on
-        each side, and looks up complement sums via a dict. Time-bounded by
-        ``config.subset_sum_timeout_ms``.
-        """
+    def _dp_subset(self, target, tol_cents, invoices, payment, conf=0.94, flags=None, rid="R-SS-DP"):
+        """Meet-in-the-middle subset-sum with configurable tolerance."""
         import time as _t
-        target_cents = round(target * 100)
+        target_c = round(target * 100)
         n = len(invoices)
-        if n < 2:
-            return None
-
+        if n < 2: return None
         deadline = _t.monotonic() + (self.config.subset_sum_timeout_ms / 1000.0)
-
         half = n // 2
-        left_invs = invoices[:half]
-        right_invs = invoices[half:]
+        L, R = invoices[:half], invoices[half:]
 
-        def _all_subset_sums(items: list[Invoice]) -> dict[int, tuple[int, ...]]:
-            """Return {sum_cents: indices_tuple} for all 2^k subsets."""
-            sums: dict[int, tuple[int, ...]] = {0: ()}
+        def _enum(items):
+            sums = {0: ()}
             for i, inv in enumerate(items):
-                if _t.monotonic() > deadline:
-                    break
-                inv_c = round(inv.amount * 100)
-                new_sums = {}
+                if _t.monotonic() > deadline: break
+                ic = round(inv.amount * 100)
+                new = {}
                 for s, idx in sums.items():
-                    key = s + inv_c
-                    if key not in sums and key not in new_sums:
-                        new_sums[key] = idx + (i,)
-                sums.update(new_sums)
+                    k = s + ic
+                    if k not in sums and k not in new:
+                        new[k] = idx + (i,)
+                sums.update(new)
             return sums
 
-        left_sums = _all_subset_sums(left_invs)
-        if _t.monotonic() > deadline:
-            return None
-        right_sums = _all_subset_sums(right_invs)
-        if _t.monotonic() > deadline:
-            return None
+        ls = _enum(L)
+        if _t.monotonic() > deadline: return None
+        rs = _enum(R)
+        if _t.monotonic() > deadline: return None
 
-        # Find left_sum + right_sum == target (with ±1 cent tolerance)
-        best_combo: list[Invoice] | None = None
-        for l_sum, l_idx in left_sums.items():
-            if _t.monotonic() > deadline:
-                break
-            needed = target_cents - l_sum
-            for delta in (-1, 0, 1):  # ±0.01€ tolerance
-                r_idx = right_sums.get(needed + delta)
-                if r_idx is None:
-                    continue
-                total_size = len(l_idx) + len(r_idx)
-                if total_size < 2:
-                    continue  # single-invoice match belongs to C1
-                combo = [left_invs[i] for i in l_idx] + [right_invs[i] for i in r_idx]
-                if best_combo is None or len(combo) < len(best_combo):
-                    best_combo = combo
+        best = None
+        for l_sum, l_idx in ls.items():
+            if _t.monotonic() > deadline: break
+            needed = target_c - l_sum
+            for d in range(-tol_cents, tol_cents + 1):
+                r_idx = rs.get(needed + d)
+                if r_idx is None: continue
+                if len(l_idx) + len(r_idx) < 2: continue
+                combo = [L[i] for i in l_idx] + [R[i] for i in r_idx]
+                if best is None or len(combo) < len(best):
+                    best = combo
 
-        if best_combo:
-            return MatchResult(
-                payment_id=payment.id,
-                invoices=best_combo,
-                method=MatchMethod.C2_SUBSET_SUM,
-                confidence=0.94,
-                allocated={inv.reference: inv.amount for inv in best_combo},
-                flags=["SUBSET_SUM_EXACT"],
-                rule_id="R-SS-EXACT",
-            )
+        if best:
+            return MatchResult(payment_id=payment.id, invoices=best,
+                method=MatchMethod.C2_SUBSET_SUM, confidence=conf,
+                allocated={i.reference: i.amount for i in best},
+                flags=list(flags or []), rule_id=rid)
         return None
 
-    def _two_sum_match(
-        self, target: float, invoices: list[Invoice], payment: Payment
-    ) -> MatchResult | None:
-        """Optimized two-invoice sum check."""
-        amounts: dict[int, Invoice] = {}
-        target_cents = round(target * 100)
-
+    def _two_sum_tol(self, target, tol_cents, invoices, payment, conf=0.95, flags=None, rid="R-SS-TWO"):
+        """Two-invoice sum with tolerance."""
+        tc = round(target * 100)
+        amounts = {}
         for inv in invoices:
-            inv_cents = round(inv.amount * 100)
-            complement = target_cents - inv_cents
-            if complement in amounts and amounts[complement].id != inv.id:
-                other = amounts[complement]
-                return MatchResult(
-                    payment_id=payment.id,
-                    invoices=[other, inv],
-                    method=MatchMethod.C2_SUBSET_SUM,
-                    confidence=0.95,
-                    allocated={other.reference: other.amount, inv.reference: inv.amount},
-                    flags=["TWO_SUM"],
-                    rule_id="R-SS-TWO",
-                )
-            amounts[inv_cents] = inv
-
+            ic = round(inv.amount * 100)
+            for d in range(-tol_cents, tol_cents + 1):
+                comp = tc - ic + d
+                if comp in amounts and amounts[comp].id != inv.id:
+                    other = amounts[comp]
+                    return MatchResult(payment_id=payment.id, invoices=[other, inv],
+                        method=MatchMethod.C2_SUBSET_SUM, confidence=conf,
+                        allocated={other.reference: other.amount, inv.reference: inv.amount},
+                        flags=list(flags or []), rule_id=rid)
+            amounts[ic] = inv
         return None
 
     # -----------------------------------------------------------------------
