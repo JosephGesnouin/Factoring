@@ -73,6 +73,16 @@ class DebtorBehavior:
     amount_lower_bound: float = 0.0
     delay_upper_bound: float = 0.0
 
+    # Verbatim / label analysis
+    dominant_language: str = ""
+    avg_label_length: float = 0.0
+    pct_empty_label: float = 0.0
+    pct_cryptic_label: float = 0.0
+    top_tokens: list[tuple[str, int]] = field(default_factory=list)  # (token, count)
+    recurring_prefixes: list[tuple[str, int]] = field(default_factory=list)
+    recurring_patterns: list[str] = field(default_factory=list)  # human-readable
+    sample_labels: list[str] = field(default_factory=list)  # 10 example labels
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "debtor_id": self.debtor_id,
@@ -94,6 +104,15 @@ class DebtorBehavior:
             "auto_rate": round(self.auto_rate * 100, 1),
             "method_distribution": {k: round(v*100, 1) for k, v in self.method_distribution.items()},
             "layer_distribution": {k: round(v*100, 1) for k, v in self.layer_distribution.items()},
+            # Verbatim analysis
+            "dominant_language": self.dominant_language,
+            "avg_label_length": round(self.avg_label_length, 0),
+            "pct_empty_label": round(self.pct_empty_label * 100, 1),
+            "pct_cryptic_label": round(self.pct_cryptic_label * 100, 1),
+            "top_tokens": self.top_tokens[:10],
+            "recurring_prefixes": self.recurring_prefixes[:5],
+            "recurring_patterns": self.recurring_patterns[:5],
+            "sample_labels": self.sample_labels[:10],
         }
 
 
@@ -361,4 +380,148 @@ class DebtorProfiler:
         profile.layer_distribution = {l: c / len(layers) for l, c in layer_counts.items()}
         profile.auto_rate = sum(1 for ctx in ctxs if ctx.final_match) / len(ctxs)
 
+        # ── Verbatim / label analysis ──
+        self._analyze_labels(profile, ctxs)
+
         return profile
+
+    def _analyze_labels(self, profile: DebtorBehavior, ctxs: list[ReconciliationContext]) -> None:
+        """Analyze all payment labels for a debtor to find recurring patterns."""
+        import re
+
+        labels = [ctx.payment.label_raw for ctx in ctxs]
+        non_empty = [l for l in labels if l and l.strip()]
+
+        # Basic stats
+        profile.avg_label_length = sum(len(l) for l in labels) / max(len(labels), 1)
+        profile.pct_empty_label = sum(1 for l in labels if not l or not l.strip()) / max(len(labels), 1)
+
+        # Cryptic detection: short labels with no recognizable ref pattern
+        cryptic_count = 0
+        for l in labels:
+            if not l or len(l.strip()) < 5:
+                cryptic_count += 1
+            elif l.strip() and not re.search(r"FAC|INV|FACT|REG|PAY|PMT|VIR|BON|CMD|PO", l.upper()):
+                cryptic_count += 1
+        profile.pct_cryptic_label = cryptic_count / max(len(labels), 1)
+
+        if not non_empty:
+            return
+
+        # Sample labels (diverse selection)
+        seen = set()
+        for l in non_empty:
+            if l not in seen and len(profile.sample_labels) < 10:
+                profile.sample_labels.append(l[:120])
+                seen.add(l)
+
+        # ── Token frequency analysis ──
+        # Strip digits and refs to find structural tokens
+        stop_words = {
+            "", "DE", "DU", "LE", "LA", "LES", "ET", "EN", "A", "AU", "DES",
+            "THE", "OF", "FOR", "AND", "TO", "IN", "ON", "AT", "BY",
+            "EUR", "USD", "GBP", "CHF",
+        }
+        all_tokens: list[str] = []
+        for l in non_empty:
+            # Remove invoice-like references and pure numbers
+            cleaned = re.sub(r"FAC[-/]?\d[\w\-/]*", "<REF>", l.upper())
+            cleaned = re.sub(r"INV[-/]?\d[\w\-/]*", "<REF>", cleaned)
+            cleaned = re.sub(r"AV[-/]?\d[\w\-/]*", "<CN>", cleaned)
+            cleaned = re.sub(r"PO[-/]?\d[\w\-/]*", "<PO>", cleaned)
+            cleaned = re.sub(r"BL[-/]?\d[\w\-/]*", "<BL>", cleaned)
+            cleaned = re.sub(r"\d{4,}", "<NUM>", cleaned)  # long numbers
+            cleaned = re.sub(r"\d+[.,]\d+", "<AMT>", cleaned)  # amounts
+            tokens = re.split(r"[\s/\-_.,;:]+", cleaned)
+            for t in tokens:
+                t = t.strip()
+                if len(t) >= 2 and t not in stop_words:
+                    all_tokens.append(t)
+
+        token_counts = Counter(all_tokens)
+        profile.top_tokens = token_counts.most_common(15)
+
+        # ── Prefix analysis (first meaningful word) ──
+        prefixes: list[str] = []
+        for l in non_empty:
+            # Skip bank noise prefixes like /RFB/, /ROC/, //
+            cleaned = re.sub(r"^[/]+\w*[/]+", "", l.strip()).strip()
+            first_word = cleaned.split()[0].upper() if cleaned.split() else ""
+            if first_word and len(first_word) >= 2:
+                prefixes.append(first_word)
+        prefix_counts = Counter(prefixes)
+        profile.recurring_prefixes = prefix_counts.most_common(5)
+
+        # ── Language detection ──
+        lang_scores: dict[str, int] = defaultdict(int)
+        LANG_MARKERS = {
+            "FR": ["REGLEMENT", "REGLT", "PAIEMENT", "VIREMENT", "FACTURE", "AVOIR", "ECHEANCE", "ACOMPTE", "SOLDE"],
+            "EN": ["PAYMENT", "SETTLEMENT", "WIRE", "TRANSFER", "INVOICE", "REMITTANCE", "BALANCE"],
+            "DE": ["ZAHLUNG", "ÜBERWEISUNG", "RECHNUNG", "GUTSCHRIFT", "AUSGLEICH", "BEZAHLUNG"],
+            "NL": ["BETALING", "OVERBOEKING", "FACTUUR", "CREDITERING"],
+            "ES": ["PAGO", "TRANSFERENCIA", "FACTURA", "LIQUIDACION", "ABONO"],
+            "IT": ["PAGAMENTO", "BONIFICO", "FATTURA", "ACCREDITO", "VERSAMENTO"],
+            "TR": ["ODEME", "HAVALE", "FATURA", "EFT"],
+            "PL": ["PRZELEW", "PLATNOSC", "FAKTURA", "ZAPLATA"],
+        }
+        upper_labels = " ".join(l.upper() for l in non_empty)
+        for lang, markers in LANG_MARKERS.items():
+            for m in markers:
+                lang_scores[lang] += upper_labels.count(m)
+        if lang_scores:
+            profile.dominant_language = max(lang_scores, key=lang_scores.get)  # type: ignore
+        else:
+            profile.dominant_language = "?"
+
+        # ── Recurring patterns (human-readable summaries) ──
+        patterns = []
+        total = len(non_empty)
+
+        # Check for structured ref presence
+        ref_count = sum(1 for l in non_empty if re.search(r"FAC[-/\s]?\d", l.upper()))
+        if ref_count > total * 0.5:
+            patterns.append(f"Reference FAC dans {ref_count}/{total} labels ({ref_count*100//total}%)")
+
+        # Check for <REF> token frequency
+        ref_token_count = sum(1 for t, c in profile.top_tokens if t == "<REF>")
+        if ref_token_count and profile.top_tokens:
+            ref_pct = next((c for t, c in profile.top_tokens if t == "<REF>"), 0)
+            if ref_pct > total * 0.3:
+                patterns.append(f"References structurees dans la majorite des labels")
+
+        # Top prefix pattern
+        if profile.recurring_prefixes:
+            top_pre, top_cnt = profile.recurring_prefixes[0]
+            if top_cnt > total * 0.3:
+                patterns.append(f"Commence souvent par '{top_pre}' ({top_cnt}/{total})")
+
+        # Language consistency
+        if lang_scores:
+            total_lang = sum(lang_scores.values())
+            top_lang_score = max(lang_scores.values())
+            if total_lang > 0 and top_lang_score / total_lang > 0.8:
+                patterns.append(f"Labels majoritairement en {profile.dominant_language}")
+            elif total_lang > 0:
+                top2 = sorted(lang_scores.items(), key=lambda x: -x[1])[:2]
+                patterns.append(f"Labels mixtes : {top2[0][0]} ({top2[0][1]}) + {top2[1][0]} ({top2[1][1]})")
+
+        # Cryptic rate
+        if profile.pct_cryptic_label > 0.3:
+            patterns.append(f"Labels souvent cryptiques ({profile.pct_cryptic_label*100:.0f}% sans mot-cle reconnu)")
+
+        # Empty rate
+        if profile.pct_empty_label > 0.1:
+            patterns.append(f"Labels vides/absents dans {profile.pct_empty_label*100:.0f}% des cas")
+
+        # Avg length
+        if profile.avg_label_length < 15:
+            patterns.append(f"Labels tres courts (moy. {profile.avg_label_length:.0f} car.)")
+        elif profile.avg_label_length > 50:
+            patterns.append(f"Labels detailles (moy. {profile.avg_label_length:.0f} car.)")
+
+        # Bank noise detection
+        noise_count = sum(1 for l in non_empty if re.match(r"^[/]", l))
+        if noise_count > total * 0.1:
+            patterns.append(f"Prefixes bancaires (/RFB/, /ROC/...) dans {noise_count}/{total} labels")
+
+        profile.recurring_patterns = patterns

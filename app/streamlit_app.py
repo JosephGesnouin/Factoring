@@ -1210,6 +1210,53 @@ elif page == "Profils Debiteurs IA":
         if not insights:
             st.info("Pas assez de donnees pour generer des insights.")
 
+        # ── Verbatim / Label analysis ──
+        st.markdown('<div class="section-h">Analyse des verbatims</div>', unsafe_allow_html=True)
+
+        lang = p.get("dominant_language", "?")
+        avg_len = p.get("avg_label_length", 0)
+        pct_empty = p.get("pct_empty_label", 0)
+        pct_cryptic = p.get("pct_cryptic_label", 0)
+        top_tokens = p.get("top_tokens", [])
+        prefixes = p.get("recurring_prefixes", [])
+        patterns = p.get("recurring_patterns", [])
+        samples = p.get("sample_labels", [])
+
+        col1, col2, col3, col4 = st.columns(4)
+        with col1: st.metric("Langue", lang)
+        with col2: st.metric("Longueur moy.", f"{avg_len:.0f} car.")
+        with col3: st.metric("Labels vides", f"{pct_empty:.0f}%")
+        with col4: st.metric("Labels cryptiques", f"{pct_cryptic:.0f}%")
+
+        if patterns:
+            st.markdown("**Patterns recurrents detectes :**")
+            for pat in patterns:
+                st.markdown(f"- {pat}")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            if top_tokens:
+                st.markdown("**Top tokens (hors refs et nombres) :**")
+                tok_df = pd.DataFrame(top_tokens[:12], columns=["Token", "Frequence"])
+                fig = px.bar(tok_df, x="Token", y="Frequence", color_discrete_sequence=[C_PURPLE])
+                fig.update_layout(height=280, **PLOTLY_LAYOUT)
+                st.plotly_chart(fig, use_container_width=True)
+
+        with col2:
+            if prefixes:
+                st.markdown("**Prefixes les plus frequents :**")
+                pre_df = pd.DataFrame(prefixes[:8], columns=["Prefixe", "Frequence"])
+                fig = px.bar(pre_df, x="Prefixe", y="Frequence", color_discrete_sequence=[C_INDIGO])
+                fig.update_layout(height=280, **PLOTLY_LAYOUT)
+                st.plotly_chart(fig, use_container_width=True)
+
+        if samples:
+            st.markdown("**Exemples de libelles (10 max) :**")
+            for i, s in enumerate(samples, 1):
+                st.markdown(f'<div style="background:#f1f5f9;padding:4px 12px;border-radius:6px;'
+                           f'margin:2px 0;font-family:monospace;font-size:0.82rem;">'
+                           f'{i}. {s}</div>', unsafe_allow_html=True)
+
 
 # =====================================================================
 # PAGE — DEEP DIVE
