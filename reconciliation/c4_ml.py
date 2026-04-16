@@ -550,16 +550,18 @@ class MLMatcher:
             logger.error("C4 rank failed: %s", e)
             return []
 
+        # Get feature importances from the LightGBM model for explainability
+        feat_importance = self._get_feature_importance()
+
         # Build enriched results
         results = []
         for i, (inv, feats) in enumerate(feature_dicts):
             proba = float(probas[i])
 
-            # ── Heuristic score (same as C6 fallback) ──
+            # ── Heuristic score ──
             heuristic = 0.0
             reasons = []
 
-            # Amount
             amt_diff_pct = feats.get("g1_amount_diff_pct", 1.0)
             if amt_diff_pct < 0.001:
                 heuristic += 0.40; reasons.append("montant exact")
@@ -568,32 +570,30 @@ class MLMatcher:
             elif amt_diff_pct < 0.15:
                 heuristic += 0.15; reasons.append(f"ecart {amt_diff_pct:.0%}")
 
-            # Same debtor
             if feats.get("g4_debtor_same", 0) > 0.5:
                 heuristic += 0.25; reasons.append("meme debiteur")
 
-            # Temporal
             days_due = feats.get("g3_days_from_due", 999)
             if abs(days_due) <= 7:
                 heuristic += 0.20; reasons.append(f"echeance {days_due:+.0f}j")
             elif abs(days_due) <= 30:
                 heuristic += 0.10; reasons.append(f"echeance {days_due:+.0f}j")
 
-            # Ref fuzzy (if any)
             ref_score = feats.get("g2_ref_composite_score", 0)
             if ref_score > 0.5:
                 heuristic += 0.15; reasons.append(f"ref fuzzy {ref_score:.0%}")
 
             heuristic = min(heuristic, 1.0)
-
-            # ── Composite = ML 60% + heuristic 40% ──
             composite = proba * 0.60 + heuristic * 0.40
 
-            # ML-specific reasons
-            if proba >= 0.5:
-                reasons.insert(0, f"ML proba {proba:.0%}")
-            elif proba >= 0.1:
-                reasons.insert(0, f"ML proba {proba:.0%}")
+            # ── ML Explainability: why this score? ──
+            ml_explanation = self._explain_prediction(feats, proba, feat_importance)
+            if proba >= 0.1:
+                reasons.insert(0, f"ML {proba:.0%}")
+            # Merge ML explanations into reasons
+            for expl in ml_explanation:
+                if expl not in reasons:
+                    reasons.append(expl)
 
             results.append({
                 "invoice": inv,
@@ -601,11 +601,16 @@ class MLMatcher:
                 "heuristic": heuristic,
                 "composite": composite,
                 "reasons": reasons,
+                "ml_explanation": ml_explanation,
                 "features_summary": {
                     "amount_diff_pct": round(amt_diff_pct * 100, 1),
                     "days_from_due": round(days_due),
                     "ref_fuzzy_score": round(ref_score, 2),
                     "debtor_match": bool(feats.get("g4_debtor_same", 0) > 0.5),
+                    "amount_exact": bool(feats.get("g1_amount_match_exact", 0)),
+                    "same_month": bool(feats.get("g3_same_month", 0)),
+                    "before_due": bool(feats.get("g3_is_before_due", 0)),
+                    "debtor_regularity": round(feats.get("g4_debtor_regularity", 0), 2),
                 },
             })
 
@@ -617,3 +622,121 @@ class MLMatcher:
             r["rank"] = i + 1
 
         return results[:top_k]
+
+    def _get_feature_importance(self) -> dict[str, float]:
+        """Get normalized feature importances from the LightGBM model."""
+        if not self.is_trained or self._ensemble._lgb_model is None:
+            return {}
+        try:
+            importances = self._ensemble._lgb_model.feature_importances_
+            names = EnsembleModel.FEATURE_NAMES
+            total = sum(importances) or 1
+            return {names[i]: importances[i] / total for i in range(len(names))}
+        except Exception:
+            return {}
+
+    def _explain_prediction(
+        self, feats: dict[str, float], proba: float, importance: dict[str, float]
+    ) -> list[str]:
+        """Generate human-readable explanations for why ML scored this candidate.
+
+        Looks at which features contributed most to the score by combining
+        feature importance (from the model) with the actual feature values.
+        Returns sorted explanations like:
+          "montant quasi-identique (ecart 0.1%)"
+          "meme debiteur confirme"
+          "echeance proche (+3j)"
+          "facture recente (12j)"
+        """
+        explanations = []
+
+        # ── HUMAN-READABLE FEATURE EXPLANATIONS ──
+        # Each rule: (feature_name, condition, explanation_text, weight)
+        # Weight determines ordering (higher = shown first)
+
+        # G1: Amount signals
+        amt_exact = feats.get("g1_amount_match_exact", 0)
+        amt_pct = feats.get("g1_amount_diff_pct", 1.0)
+        amt_ht = feats.get("g1_amount_match_ht", 0)
+
+        if amt_exact > 0.5:
+            explanations.append((0.95, "montant identique a l'euro pres"))
+        elif amt_pct < 0.001:
+            explanations.append((0.90, "montant quasi-identique"))
+        elif amt_pct < 0.02:
+            explanations.append((0.70, f"montant tres proche (ecart {amt_pct:.1%})"))
+        elif amt_pct < 0.05:
+            explanations.append((0.50, f"montant proche (ecart {amt_pct:.1%})"))
+        elif amt_pct < 0.15:
+            explanations.append((0.20, f"montant dans la zone (ecart {amt_pct:.0%})"))
+
+        if amt_ht > 0.5:
+            explanations.append((0.65, "correspond au montant HT (erreur TVA possible)"))
+
+        if feats.get("g1_amount_in_label", 0) > 0.5:
+            explanations.append((0.55, "montant mentionne dans le libelle"))
+
+        # G2: Reference signals
+        ref_comp = feats.get("g2_ref_composite_score", 0)
+        ref_partial = feats.get("g2_ref_partial_score", 0)
+        ref_numeric = feats.get("g2_ref_numeric_score", 0)
+        ref_in_label = feats.get("g2_ref_in_label", 0)
+
+        if ref_in_label > 0.5:
+            explanations.append((0.85, "reference trouvee dans le libelle"))
+        elif ref_comp > 0.7:
+            explanations.append((0.75, f"reference similaire (fuzzy {ref_comp:.0%})"))
+        elif ref_numeric > 0.7:
+            explanations.append((0.60, f"numerotation proche (numeric {ref_numeric:.0%})"))
+        elif ref_partial > 0.5:
+            explanations.append((0.40, f"reference partielle detectee"))
+
+        # G3: Temporal signals
+        days_due = feats.get("g3_days_from_due", 999)
+        same_month = feats.get("g3_same_month", 0)
+        before_due = feats.get("g3_is_before_due", 0)
+        inv_age = feats.get("g3_invoice_age_days", 0)
+        period_match = feats.get("g3_period_match", 0)
+
+        if abs(days_due) <= 3:
+            explanations.append((0.80, f"paiement pile a l'echeance ({days_due:+.0f}j)"))
+        elif abs(days_due) <= 7:
+            explanations.append((0.65, f"echeance tres proche ({days_due:+.0f}j)"))
+        elif abs(days_due) <= 15:
+            explanations.append((0.45, f"echeance a {abs(days_due):.0f}j"))
+        elif abs(days_due) <= 30:
+            explanations.append((0.25, f"echeance dans le mois ({days_due:+.0f}j)"))
+
+        if same_month > 0.5:
+            explanations.append((0.35, "meme mois d'emission"))
+
+        if before_due > 0.5 and days_due < 0:
+            explanations.append((0.30, "paiement anticipe (avant echeance)"))
+
+        if period_match > 0.5:
+            explanations.append((0.55, "periode du libelle correspond"))
+
+        if 5 <= inv_age <= 60:
+            explanations.append((0.15, f"facture recente ({inv_age:.0f}j)"))
+
+        # G4: Behavioral signals
+        debtor_same = feats.get("g4_debtor_same", 0)
+        debtor_reg = feats.get("g4_debtor_regularity", 0)
+        debtor_risk = feats.get("g4_debtor_risk", 0.5)
+        debtor_has_disc = feats.get("g4_debtor_has_discount", 0)
+        kw_partial = feats.get("g4_keyword_partial", 0)
+
+        if debtor_same > 0.5:
+            explanations.append((0.85, "meme debiteur confirme"))
+
+        if debtor_reg > 0.85:
+            explanations.append((0.30, f"debiteur tres regulier ({debtor_reg:.0%})"))
+        elif debtor_reg < 0.5:
+            explanations.append((0.10, f"debiteur irregulier ({debtor_reg:.0%})"))
+
+        if kw_partial > 0.5:
+            explanations.append((0.40, "mot-cle 'acompte/partiel' detecte"))
+
+        # Sort by weight descending, take top 5
+        explanations.sort(key=lambda x: -x[0])
+        return [text for _, text in explanations[:5]]
