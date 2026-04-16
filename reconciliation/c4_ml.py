@@ -614,6 +614,13 @@ class MLMatcher:
                 },
             })
 
+        # ── Multi-invoice combo recommendations ──
+        # Try pairs and triples of invoices whose sum ≈ payment amount
+        combo_results = self._find_combo_recommendations(
+            payment, candidate_invs, probas, feature_dicts, feat_importance
+        )
+        results.extend(combo_results)
+
         # Sort by composite score
         results.sort(key=lambda x: -x["composite"])
 
@@ -622,6 +629,96 @@ class MLMatcher:
             r["rank"] = i + 1
 
         return results[:top_k]
+
+    def _find_combo_recommendations(
+        self, payment, invoices, probas, feature_dicts, feat_importance,
+        max_combo_size: int = 3, tolerance_pct: float = 0.02,
+    ) -> list[dict]:
+        """Find combinations of 2-3 invoices whose sum matches the payment.
+
+        Returns combo recommendations with multi-invoice explanations.
+        Only considers invoices from the same debtor with positive ML signal.
+        """
+        target = payment.amount
+        combos = []
+
+        # Only use top-20 by ML proba to keep combinatorics manageable
+        sorted_by_proba = sorted(
+            [(i, float(probas[i])) for i in range(len(invoices))],
+            key=lambda x: -x[1],
+        )[:20]
+        top_indices = [idx for idx, _ in sorted_by_proba]
+
+        # Try pairs
+        for a_pos in range(len(top_indices)):
+            a_idx = top_indices[a_pos]
+            inv_a = invoices[a_idx]
+            for b_pos in range(a_pos + 1, len(top_indices)):
+                b_idx = top_indices[b_pos]
+                inv_b = invoices[b_idx]
+                total = inv_a.amount + inv_b.amount
+                diff = abs(target - total)
+                if diff / max(target, 1) <= tolerance_pct:
+                    avg_proba = (float(probas[a_idx]) + float(probas[b_idx])) / 2
+                    combo_score = avg_proba * 0.50 + 0.40  # boost for exact sum match
+                    reasons = [
+                        f"SOMME 2 factures = {total:,.2f} EUR",
+                        f"ecart {diff:,.2f} EUR ({diff/max(target,1):.1%})",
+                        f"{inv_a.reference} ({inv_a.amount:,.2f}) + {inv_b.reference} ({inv_b.amount:,.2f})",
+                    ]
+                    if abs(diff) < 1.0:
+                        reasons[1] = "somme exacte"
+                    combos.append({
+                        "invoice": inv_a,  # primary invoice for display
+                        "invoices": [inv_a, inv_b],
+                        "proba": avg_proba,
+                        "heuristic": 0.85 if diff < 1 else 0.70,
+                        "composite": min(combo_score, 0.98),
+                        "reasons": reasons,
+                        "ml_explanation": [
+                            f"somme de {inv_a.reference} + {inv_b.reference} = {total:,.2f}",
+                            "meme debiteur confirme" if inv_a.debtor_id == payment.debtor_id else "",
+                        ],
+                        "features_summary": {"combo": True, "n_invoices": 2, "sum": total, "diff": diff},
+                        "is_combo": True,
+                    })
+
+                # Try triples
+                if max_combo_size >= 3:
+                    for c_pos in range(b_pos + 1, min(len(top_indices), b_pos + 8)):
+                        c_idx = top_indices[c_pos]
+                        inv_c = invoices[c_idx]
+                        total3 = total + inv_c.amount
+                        diff3 = abs(target - total3)
+                        if diff3 / max(target, 1) <= tolerance_pct:
+                            avg_p3 = (float(probas[a_idx]) + float(probas[b_idx]) + float(probas[c_idx])) / 3
+                            score3 = avg_p3 * 0.45 + 0.40
+                            refs = f"{inv_a.reference} + {inv_b.reference} + {inv_c.reference}"
+                            combos.append({
+                                "invoice": inv_a,
+                                "invoices": [inv_a, inv_b, inv_c],
+                                "proba": avg_p3,
+                                "heuristic": 0.80 if diff3 < 1 else 0.65,
+                                "composite": min(score3, 0.95),
+                                "reasons": [
+                                    f"SOMME 3 factures = {total3:,.2f} EUR",
+                                    f"ecart {diff3:,.2f} EUR" if diff3 >= 1 else "somme exacte",
+                                    refs,
+                                ],
+                                "ml_explanation": [f"somme de 3 factures = {total3:,.2f}"],
+                                "features_summary": {"combo": True, "n_invoices": 3, "sum": total3, "diff": diff3},
+                                "is_combo": True,
+                            })
+
+        # Keep best combos (deduplicate by invoice set)
+        seen = set()
+        unique = []
+        for c in sorted(combos, key=lambda x: -x["composite"]):
+            inv_ids = tuple(sorted(i.id for i in c["invoices"]))
+            if inv_ids not in seen:
+                seen.add(inv_ids)
+                unique.append(c)
+        return unique[:3]  # top 3 combos max
 
     def _get_feature_importance(self) -> dict[str, float]:
         """Get normalized feature importances from the LightGBM model."""
