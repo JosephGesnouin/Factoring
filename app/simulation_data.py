@@ -206,8 +206,13 @@ def _lbl(ref, country, rng):
 def _train_c4(orch, payments, invoices, ground_truth, consumed, rng):
     """Auto-train the C4 ML model from simulation ground truth.
 
-    Uses consumed invoice IDs as positive pairs and random mismatches
-    as negatives. Trains on first 20% of payments, tests on rest.
+    Creates diverse training pairs:
+      1. Payments with exact ref → matched invoice (positive, with ref features)
+      2. Payments WITHOUT ref but known ground truth → matched invoice
+         (positive, ref features zeroed — teaches amount/temporal/debtor signal)
+      3. Synthetic no-ref positives: simulate a cryptic payment for each
+         known invoice match (positive, only amount/temporal)
+      4. Random mismatches from same debtor (negatives)
     """
     try:
         import numpy as np
@@ -216,8 +221,9 @@ def _train_c4(orch, payments, invoices, ground_truth, consumed, rng):
         print(f"  C4 training skipped (missing deps: {e})")
         return
 
-    # Build training pairs from ground truth
-    inv_by_id = {inv.id: inv for inv in invoices}
+    from reconciliation.utils import normalize_ref
+    from reconciliation.models import PaymentSignals
+
     inv_by_ref = {inv.reference: inv for inv in invoices}
     inv_by_debtor = defaultdict(list)
     for inv in invoices:
@@ -225,38 +231,71 @@ def _train_c4(orch, payments, invoices, ground_truth, consumed, rng):
 
     X_list, y_list = [], []
     feature_names = EnsembleModel.FEATURE_NAMES
+    third = len(payments) // 3
 
-    # Use first N payments that have known matching invoices
-    training_payments = [p for p in payments[:len(payments)//3]
-                         if p.signals.raw_refs]
-    n_train = min(len(training_payments), 2000)
-    sampled = rng.sample(training_payments, n_train) if len(training_payments) > n_train else training_payments
-
-    for pay in sampled:
-        # Find the matched invoice by ref
+    # ── Source 1: payments WITH ref (learn ref-based matching) ──
+    ref_payments = [p for p in payments[:third] if p.signals.raw_refs]
+    n_ref = min(len(ref_payments), 800)
+    for pay in (rng.sample(ref_payments, n_ref) if len(ref_payments) > n_ref else ref_payments):
         matched_inv = None
         for ref in pay.signals.raw_refs:
             for inv in invoices:
-                from reconciliation.utils import normalize_ref
                 if normalize_ref(inv.reference) == normalize_ref(ref):
                     matched_inv = inv
                     break
             if matched_inv:
                 break
-
         if not matched_inv:
             continue
 
-        # Positive pair
-        feat_pos = compute_features(pay, matched_inv)
-        X_list.append([feat_pos.get(n, 0.0) for n in feature_names])
+        # Positive with ref
+        feat = compute_features(pay, matched_inv)
+        X_list.append([feat.get(n, 0.0) for n in feature_names])
         y_list.append(1)
 
-        # Negative pairs (2-3 random non-matching invoices from same debtor)
+        # ── Source 2: same pair but STRIP the ref features → teach amount/temporal ──
+        pay_no_ref = Payment(
+            id=pay.id, amount=pay.amount, currency=pay.currency, date=pay.date,
+            label_raw="", label_normalized="", debtor_id=pay.debtor_id,
+            debtor=pay.debtor, iban_source=pay.iban_source,
+            signals=PaymentSignals(),  # empty — no ref, no keywords
+        )
+        feat_noref = compute_features(pay_no_ref, matched_inv)
+        X_list.append([feat_noref.get(n, 0.0) for n in feature_names])
+        y_list.append(1)
+
+        # Negatives: 2 random non-matching invoices
         debtor_invs = inv_by_debtor.get(pay.debtor_id, [])
-        negatives = [inv for inv in debtor_invs if inv.id != matched_inv.id]
-        for neg_inv in rng.sample(negatives, min(2, len(negatives))):
+        negs = [inv for inv in debtor_invs if inv.id != matched_inv.id]
+        for neg_inv in rng.sample(negs, min(2, len(negs))):
             feat_neg = compute_features(pay, neg_inv)
+            X_list.append([feat_neg.get(n, 0.0) for n in feature_names])
+            y_list.append(0)
+
+            # Also a no-ref negative
+            feat_neg2 = compute_features(pay_no_ref, neg_inv)
+            X_list.append([feat_neg2.get(n, 0.0) for n in feature_names])
+            y_list.append(0)
+
+    # ── Source 3: ground truth C6 payments (cryptic labels) ──
+    gt_payments = [p for p in payments[:third] if p.id in ground_truth]
+    n_gt = min(len(gt_payments), 500)
+    for pay in (rng.sample(gt_payments, n_gt) if len(gt_payments) > n_gt else gt_payments):
+        true_ref = ground_truth[pay.id]
+        true_inv = inv_by_ref.get(true_ref)
+        if not true_inv:
+            continue
+
+        # Positive: this cryptic payment actually belongs to this invoice
+        feat = compute_features(pay, true_inv)
+        X_list.append([feat.get(n, 0.0) for n in feature_names])
+        y_list.append(1)
+
+        # Negatives
+        debtor_invs = inv_by_debtor.get(pay.debtor_id, [])
+        negs = [inv for inv in debtor_invs if inv.id != true_inv.id]
+        for neg in rng.sample(negs, min(2, len(negs))):
+            feat_neg = compute_features(pay, neg)
             X_list.append([feat_neg.get(n, 0.0) for n in feature_names])
             y_list.append(0)
 
