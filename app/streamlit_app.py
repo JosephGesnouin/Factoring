@@ -818,23 +818,25 @@ elif page == "Revue Humaine":
             pid = r["payment_id"]
             true_ref = _ground_truth.get(pid, "")
 
-            # Prefer C4 ML rankings when available
+            # Prefer C4 ML rankings when available (new enriched format)
             ml_rank = _ml_rankings.get(pid)
             if ml_rank:
                 candidates = []
                 for mr in ml_rank:
                     inv = mr["invoice"]
-                    proba = mr["proba"]
-                    reasons = [f"ML proba {proba:.0%}"]
-                    # Enrich with human-readable reasons
-                    if inv.debtor_id == r["debtor_id"]: reasons.append("meme debiteur")
-                    if inv.amount > 0:
-                        dp = abs(r["amount"] - inv.amount) / inv.amount
-                        if dp < 0.001: reasons.append("montant exact")
-                        elif dp < 0.05: reasons.append(f"ecart {dp:.1%}")
-                    candidates.append({"ref": inv.reference, "amount": inv.amount,
-                        "score": proba, "reason": " | ".join(reasons),
-                        "is_true": inv.reference == true_ref, "source": "ML"})
+                    proba = mr.get("proba", 0)
+                    composite = mr.get("composite", proba)
+                    # Use ML-provided reasons if available, else build from proba
+                    ml_reasons = mr.get("reasons", [])
+                    reason_str = " | ".join(ml_reasons) if ml_reasons else f"ML proba {proba:.0%}"
+                    candidates.append({
+                        "ref": inv.reference, "amount": inv.amount,
+                        "score": composite,  # composite = ML 60% + heuristic 40%
+                        "proba": proba,      # raw ML probability
+                        "reason": reason_str,
+                        "is_true": inv.reference == true_ref,
+                        "source": "ML",
+                    })
                 recs[pid] = candidates[:5]
                 continue
 
@@ -929,7 +931,8 @@ elif page == "Revue Humaine":
                 is_ml = rec.get("source") == "ML"
                 bg = "#ecfdf5" if is_true else ("#f5f3ff" if is_ml else "#f8fafc")
                 border = "2px solid #10b981" if is_true else ("1px solid #c4b5fd" if is_ml else "1px solid #e2e8f0")
-                bar_w = int(rec["score"] * 100)
+                score = rec["score"]
+                bar_w = int(min(score, 1.0) * 100)
                 if is_true:
                     bar_color = "linear-gradient(90deg,#10b981,#34d399)"
                 elif is_ml:
@@ -940,16 +943,22 @@ elif page == "Revue Humaine":
                          'font-size:0.72rem;font-weight:700;margin-left:6px;">VRAIE FACTURE</span>' if is_true else "")
                 ref_style = "font-weight:700;color:#065f46;" if is_true else ""
                 score_color = "#8b5cf6" if is_ml else "#667eea"
+                # Show both composite and ML proba for ML-sourced recs
+                proba_str = ""
+                if is_ml and "proba" in rec:
+                    proba_str = (f'<span style="font-size:0.7rem;color:#8b5cf6;background:#f5f3ff;'
+                                 f'padding:1px 6px;border-radius:3px;margin-left:4px;">'
+                                 f'ML {rec["proba"]:.0%}</span>')
                 st.markdown(f"""
-                <div style="display:grid; grid-template-columns:28px 1fr 90px 70px 42px; gap:8px; align-items:center;
+                <div style="display:grid; grid-template-columns:28px 1fr 90px 70px 50px; gap:8px; align-items:center;
                             padding:6px 12px; margin:3px 0 3px 20px; background:{bg}; border:{border}; border-radius:8px; font-size:0.82rem;">
                     <span style="font-weight:800; color:{score_color};">#{i+1}</span>
-                    <span style="font-family:monospace; {ref_style}">{rec['ref']}{check}</span>
+                    <span style="font-family:monospace; {ref_style}">{rec['ref']}{check}{proba_str}</span>
                     <span style="text-align:right; font-variant-numeric:tabular-nums;">{rec['amount']:,.2f}</span>
                     <span style="height:10px; background:#e2e8f0; border-radius:5px; overflow:hidden;">
                         <span style="display:block; height:100%; width:{bar_w}%; background:{bar_color}; border-radius:5px;"></span>
                     </span>
-                    <span style="font-weight:700; color:{score_color}; text-align:right;">{rec['score']:.0%}</span>
+                    <span style="font-weight:700; color:{score_color}; text-align:right;">{score:.0%}</span>
                 </div>
                 <div style="font-size:0.72rem; color:#64748b; font-style:italic; padding-left:52px; margin-bottom:2px;">{rec['reason']}</div>
                 """, unsafe_allow_html=True)

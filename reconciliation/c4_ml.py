@@ -517,14 +517,15 @@ class MLMatcher:
     def rank_candidates(
         self, payment: Payment, open_invoices: list[Invoice], top_k: int = 10
     ) -> list[dict]:
-        """Score ALL candidates and return top-K ranked by ML probability.
+        """Score ALL candidates and return top-K with ML proba + reasons.
 
-        Unlike ``match()`` which only returns if above threshold, this method
-        always returns scored candidates — useful for C6 recommendations.
-
-        Returns:
-            List of dicts sorted by descending probability:
-            [{"invoice": Invoice, "proba": float, "rank": int}, ...]
+        Returns a richer dict per candidate to power C6 recommendations:
+          - invoice: Invoice object
+          - proba: ML probability (0-1)
+          - rank: position in ML ranking
+          - composite: blended score (ML 60% + heuristic 40%)
+          - reasons: human-readable explanation list
+          - features_summary: key feature values for explainability
         """
         if not self.is_trained or not open_invoices:
             return []
@@ -539,23 +540,80 @@ class MLMatcher:
             return []
 
         try:
-            candidates = [(inv, compute_features(payment, inv)) for inv in candidate_invs]
+            feature_dicts = [(inv, compute_features(payment, inv)) for inv in candidate_invs]
             X = np.array([
                 [f.get(name, 0.0) for name in EnsembleModel.FEATURE_NAMES]
-                for _, f in candidates
+                for _, f in feature_dicts
             ])
             probas = self._ensemble.predict_proba(X)
         except (RuntimeError, ValueError) as e:
             logger.error("C4 rank failed: %s", e)
             return []
 
-        # Sort by probability descending
-        ranked = sorted(
-            [(candidates[i][0], float(probas[i])) for i in range(len(candidates))],
-            key=lambda x: -x[1],
-        )
+        # Build enriched results
+        results = []
+        for i, (inv, feats) in enumerate(feature_dicts):
+            proba = float(probas[i])
 
-        return [
-            {"invoice": inv, "proba": proba, "rank": i + 1}
-            for i, (inv, proba) in enumerate(ranked[:top_k])
-        ]
+            # ── Heuristic score (same as C6 fallback) ──
+            heuristic = 0.0
+            reasons = []
+
+            # Amount
+            amt_diff_pct = feats.get("g1_amount_diff_pct", 1.0)
+            if amt_diff_pct < 0.001:
+                heuristic += 0.40; reasons.append("montant exact")
+            elif amt_diff_pct < 0.05:
+                heuristic += 0.30; reasons.append(f"ecart {amt_diff_pct:.1%}")
+            elif amt_diff_pct < 0.15:
+                heuristic += 0.15; reasons.append(f"ecart {amt_diff_pct:.0%}")
+
+            # Same debtor
+            if feats.get("g4_debtor_same", 0) > 0.5:
+                heuristic += 0.25; reasons.append("meme debiteur")
+
+            # Temporal
+            days_due = feats.get("g3_days_from_due", 999)
+            if abs(days_due) <= 7:
+                heuristic += 0.20; reasons.append(f"echeance {days_due:+.0f}j")
+            elif abs(days_due) <= 30:
+                heuristic += 0.10; reasons.append(f"echeance {days_due:+.0f}j")
+
+            # Ref fuzzy (if any)
+            ref_score = feats.get("g2_ref_composite_score", 0)
+            if ref_score > 0.5:
+                heuristic += 0.15; reasons.append(f"ref fuzzy {ref_score:.0%}")
+
+            heuristic = min(heuristic, 1.0)
+
+            # ── Composite = ML 60% + heuristic 40% ──
+            composite = proba * 0.60 + heuristic * 0.40
+
+            # ML-specific reasons
+            if proba >= 0.5:
+                reasons.insert(0, f"ML proba {proba:.0%}")
+            elif proba >= 0.1:
+                reasons.insert(0, f"ML proba {proba:.0%}")
+
+            results.append({
+                "invoice": inv,
+                "proba": proba,
+                "heuristic": heuristic,
+                "composite": composite,
+                "reasons": reasons,
+                "features_summary": {
+                    "amount_diff_pct": round(amt_diff_pct * 100, 1),
+                    "days_from_due": round(days_due),
+                    "ref_fuzzy_score": round(ref_score, 2),
+                    "debtor_match": bool(feats.get("g4_debtor_same", 0) > 0.5),
+                },
+            })
+
+        # Sort by composite score
+        results.sort(key=lambda x: -x["composite"])
+
+        # Assign ranks
+        for i, r in enumerate(results[:top_k]):
+            r["rank"] = i + 1
+
+        return results[:top_k]
