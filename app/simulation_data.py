@@ -303,6 +303,9 @@ def _train_c4(orch, payments, invoices, ground_truth, consumed, rng):
         print(f"  C4 training skipped (insufficient data: {len(X_list)} samples)")
         return
 
+    import warnings as _w
+    _w.filterwarnings("ignore", category=UserWarning)
+
     X = np.array(X_list)
     y = np.array(y_list)
     print(f"  C4 training: {len(X)} samples ({y.sum()} positive, {len(y)-y.sum()} negative)")

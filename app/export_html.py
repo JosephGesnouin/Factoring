@@ -21,7 +21,10 @@ import pandas as pd
 from collections import defaultdict
 
 print("Generating data...")
-data = generate_all(seed=42)
+import warnings
+warnings.filterwarnings("ignore")
+
+data = generate_all(seed=42, target_payments=5000)
 df = data["df"]
 m = data["metrics"]
 total = m.total_payments
@@ -243,73 +246,78 @@ METHOD_EXPLANATIONS = {
     ),
 }
 
-# ── Compute recommendations for HUMAN_REVIEW payments ──
+# ── Build recommendations: prefer ML rankings from ctx, fallback to heuristic ──
 print("Computing recommendations for unmatched payments...")
 inv_by_debtor = defaultdict(list)
 for inv in data["invoices"]:
     inv_by_debtor[inv.debtor_id].append(inv)
 
-ground_truth = data.get("ground_truth", {})  # payment_id -> true invoice ref
-recommendations = {}  # payment_id -> list of {ref, amount, score, reason, is_true}
+ground_truth = data.get("ground_truth", {})
+recommendations = {}
+
+# Index ml_rankings from results
+ml_by_pid = {}
+for ctx in data["results"]:
+    if ctx.ml_rankings:
+        ml_by_pid[ctx.payment.id] = ctx.ml_rankings
 
 human_review_df = df[df["method"] == "HUMAN_REVIEW"]
 for _, r in human_review_df.iterrows():
     pay_id = r["payment_id"]
-    pay_amount = r["amount"]
-    pay_date = r["date"]
-    debtor_id = r["debtor_id"]
+    true_ref = ground_truth.get(pay_id, "")
 
-    candidates = []
-    search_invoices = inv_by_debtor.get(debtor_id, data["invoices"][:50])
-
-    for inv in search_invoices:
-        score = 0.0
-        reasons = []
-
-        # Amount proximity (0-0.40)
-        if inv.amount > 0:
-            diff_pct = abs(pay_amount - inv.amount) / inv.amount
-            if diff_pct < 0.001:
-                score += 0.40; reasons.append("montant exact")
-            elif diff_pct < 0.05:
-                score += 0.30; reasons.append(f"ecart {diff_pct:.1%}")
-            elif diff_pct < 0.15:
-                score += 0.15; reasons.append(f"ecart {diff_pct:.0%}")
-            elif diff_pct < 0.30:
-                score += 0.05
-
-        # Debtor match (0-0.25)
-        if inv.debtor_id == debtor_id:
-            score += 0.25; reasons.append("meme debiteur")
-
-        # Temporal proximity (0-0.20)
-        if pay_date and inv.due_date:
-            day_diff = abs((pay_date - inv.due_date).days)
-            if day_diff <= 7:
-                score += 0.20; reasons.append(f"echeance +{day_diff}j")
-            elif day_diff <= 30:
-                score += 0.12; reasons.append(f"echeance +{day_diff}j")
-            elif day_diff <= 60:
-                score += 0.05
-
-        # Amount HT match (0-0.15)
-        if inv.amount_ht > 0 and abs(pay_amount - inv.amount_ht) / inv.amount_ht < 0.01:
-            score += 0.15; reasons.append("montant HT")
-
-        if score > 0.10:
-            true_ref = ground_truth.get(pay_id, "")
-            candidates.append({
-                "ref": inv.reference,
-                "amount": inv.amount,
-                "score": min(score, 1.0),
-                "reason": " | ".join(reasons[:3]),
-                "is_true": inv.reference == true_ref,
+    # Prefer ML rankings (include combos)
+    ml_rank = ml_by_pid.get(pay_id)
+    if ml_rank:
+        cands = []
+        for mr in ml_rank[:5]:
+            inv = mr["invoice"]
+            composite = mr.get("composite", mr.get("proba", 0))
+            proba = mr.get("proba", 0)
+            ml_reasons = mr.get("reasons", [])
+            is_combo = mr.get("is_combo", False)
+            if is_combo:
+                invs = mr.get("invoices", [inv])
+                ref_str = " + ".join(i.reference for i in invs)
+                amt = sum(i.amount for i in invs)
+            else:
+                ref_str = inv.reference
+                amt = inv.amount
+            cands.append({
+                "ref": ref_str,
+                "amount": amt,
+                "score": composite,
+                "reason": " | ".join(ml_reasons[:4]),
+                "is_true": (not is_combo and inv.reference == true_ref),
+                "is_combo": is_combo,
             })
+        recommendations[pay_id] = cands
+        continue
 
-    candidates.sort(key=lambda x: -x["score"])
-    recommendations[pay_id] = candidates[:5]
+    # Fallback: heuristic
+    search = inv_by_debtor.get(r["debtor_id"], data["invoices"][:50])
+    cands = []
+    for inv in search:
+        score, reasons = 0.0, []
+        if inv.amount > 0:
+            dp = abs(r["amount"] - inv.amount) / inv.amount
+            if dp < 0.001: score += 0.40; reasons.append("montant exact")
+            elif dp < 0.05: score += 0.30; reasons.append(f"ecart {dp:.1%}")
+            elif dp < 0.15: score += 0.15; reasons.append(f"ecart {dp:.0%}")
+        if inv.debtor_id == r["debtor_id"]: score += 0.25; reasons.append("meme debiteur")
+        if r["date"] and inv.due_date:
+            dd = abs((r["date"] - inv.due_date).days)
+            if dd <= 7: score += 0.20; reasons.append(f"+{dd}j")
+            elif dd <= 30: score += 0.12; reasons.append(f"+{dd}j")
+        if score > 0.1:
+            cands.append({"ref": inv.reference, "amount": inv.amount,
+                "score": min(score, 1.0), "reason": " | ".join(reasons[:3]),
+                "is_true": inv.reference == true_ref, "is_combo": False})
+    cands.sort(key=lambda x: -x["score"])
+    recommendations[pay_id] = cands[:5]
 
-print(f"  Recommendations computed for {len(recommendations)} payments")
+n_with_ml = sum(1 for pid in recommendations if pid in ml_by_pid)
+print(f"  {len(recommendations)} recommendations ({n_with_ml} ML-powered, {len(recommendations)-n_with_ml} heuristic)")
 
 # Build FULL catalogue grouped by method
 print("Building full catalogue...")
@@ -387,19 +395,29 @@ for method_name in method_order:
             if recs:
                 rec_html = '<div class="reco-list">'
                 for rank, rec in enumerate(recs[:5], 1):
-                    bar_w = int(rec["score"] * 100)
+                    score = rec["score"]
+                    bar_w = int(min(score, 1.0) * 100)
                     is_correct = rec.get("is_true", False)
-                    item_cls = "reco-item reco-correct" if is_correct else "reco-item"
+                    is_combo = rec.get("is_combo", False)
+                    if is_correct:
+                        item_cls = "reco-item reco-correct"
+                        bar_cls = "reco-fill reco-fill-correct"
+                    elif is_combo:
+                        item_cls = "reco-item"
+                        bar_cls = "reco-fill"
+                    else:
+                        item_cls = "reco-item"
+                        bar_cls = "reco-fill"
                     check = ' <span class="reco-check">&#10003; VRAIE FACTURE</span>' if is_correct else ""
-                    bar_cls = "reco-fill reco-fill-correct" if is_correct else "reco-fill"
+                    combo_badge = ' <span style="background:#8b5cf6;color:white;padding:1px 5px;border-radius:3px;font-size:0.62rem;">COMBO</span>' if is_combo else ""
                     rec_html += (
                         f'<div class="{item_cls}">'
                         f'<span class="reco-rank">#{rank}</span>'
-                        f'<span class="reco-ref">{rec["ref"]}</span>'
+                        f'<span class="reco-ref">{rec["ref"][:50]}{combo_badge}</span>'
                         f'<span class="reco-amt">{rec["amount"]:,.2f}</span>'
                         f'<span class="reco-bar"><span class="{bar_cls}" style="width:{bar_w}%"></span></span>'
-                        f'<span class="reco-score">{rec["score"]:.0%}</span>'
-                        f'<span class="reco-reason">{rec["reason"]}{check}</span>'
+                        f'<span class="reco-score">{score:.0%}</span>'
+                        f'<span class="reco-reason">{rec["reason"][:80]}{check}</span>'
                         f'</div>'
                     )
                 rec_html += '</div>'
