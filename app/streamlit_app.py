@@ -13,6 +13,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from collections import defaultdict
+from html import escape as _esc
 
 st.set_page_config(
     page_title="Reconciliation IA — Factoring",
@@ -150,7 +151,8 @@ st.markdown("""
 @st.cache_data(show_spinner="Generation des donnees et simulation (10 000+ paiements)...")
 def load_data():
     from app.simulation_data import generate_all
-    return generate_all(seed=42, target_payments=10000)
+    import warnings; warnings.filterwarnings("ignore")
+    return generate_all(seed=42, target_payments=5000)
 
 
 # ── Plotly defaults ──
@@ -699,9 +701,9 @@ elif page == "Paiements par Couche":
                 <div class="deep-meta">
                     <span><b>Montant :</b> {row['amount']:,.2f} EUR</span>
                     <span><b>Date :</b> {row['date']}</span>
-                    <span><b>Debiteur :</b> {row['debtor_name']}</span>
+                    <span><b>Debiteur :</b> {_esc(str(row['debtor_name']))}</span>
                 </div>
-                <div class="deep-label"><b>Libelle :</b><br><code>{row['label'] if row['label'] else '(vide)'}</code></div>
+                <div class="deep-label"><b>Libelle :</b><br><code>{_esc(row['label']) if row['label'] else '(vide)'}</code></div>
             </div>
             """, unsafe_allow_html=True)
         with col2:
@@ -735,9 +737,9 @@ elif page == "Paiements par Couche":
             st.markdown(steps_html, unsafe_allow_html=True)
 
         if row["matched"]:
-            st.markdown(f'<div class="result-box result-ok"><b>Factures :</b> {row["invoices_matched"]}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="result-box result-ok"><b>Factures :</b> {_esc(str(row["invoices_matched"]))}</div>', unsafe_allow_html=True)
             if row["flags"]:
-                st.markdown(f'<div class="result-box result-flags"><b>Flags :</b> {row["flags"]}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="result-box result-flags"><b>Flags :</b> {_esc(str(row["flags"]))}</div>', unsafe_allow_html=True)
 
 
 # =====================================================================
@@ -897,7 +899,7 @@ elif page == "Revue Humaine":
     for _, row in page_slice.iterrows():
         pid = row["payment_id"]
         recs = recommendations.get(pid, [])
-        label_esc = row["label"] if row["label"] else "(vide)"
+        label_esc = _esc(row["label"]) if row["label"] else "(vide)"
 
         # Payment card
         has_true = any(r["is_true"] for r in recs)
@@ -909,7 +911,7 @@ elif page == "Revue Humaine":
                 <code style="font-size:0.9rem; font-weight:700;">{pid}</code>
                 <span style="font-size:1.1rem; font-weight:700;">{row['amount']:,.2f} EUR</span>
                 <span style="color:var(--slate); font-size:0.85rem;">{row['date']}</span>
-                <span style="color:var(--slate); font-size:0.85rem;">{row['debtor_name']}</span>
+                <span style="color:var(--slate); font-size:0.85rem;">{_esc(str(row['debtor_name']))}</span>
             </div>
             <div class="deep-label"><code>{label_esc[:100]}</code></div>
         </div>
@@ -953,14 +955,14 @@ elif page == "Revue Humaine":
                 <div style="display:grid; grid-template-columns:28px 1fr 90px 70px 50px; gap:8px; align-items:center;
                             padding:6px 12px; margin:3px 0 3px 20px; background:{bg}; border:{border}; border-radius:8px; font-size:0.82rem;">
                     <span style="font-weight:800; color:{score_color};">#{i+1}</span>
-                    <span style="font-family:monospace; {ref_style}">{rec['ref']}{check}{proba_str}</span>
+                    <span style="font-family:monospace; {ref_style}">{_esc(str(rec['ref']))}{check}{proba_str}</span>
                     <span style="text-align:right; font-variant-numeric:tabular-nums;">{rec['amount']:,.2f}</span>
                     <span style="height:10px; background:#e2e8f0; border-radius:5px; overflow:hidden;">
                         <span style="display:block; height:100%; width:{bar_w}%; background:{bar_color}; border-radius:5px;"></span>
                     </span>
                     <span style="font-weight:700; color:{score_color}; text-align:right;">{score:.0%}</span>
                 </div>
-                <div style="font-size:0.72rem; color:#64748b; font-style:italic; padding-left:52px; margin-bottom:2px;">{rec['reason']}</div>
+                <div style="font-size:0.72rem; color:#64748b; font-style:italic; padding-left:52px; margin-bottom:2px;">{_esc(str(rec['reason']))}</div>
                 """, unsafe_allow_html=True)
         else:
             st.markdown('<div style="color:#94a3b8; font-style:italic; padding-left:20px; margin-bottom:8px; font-size:0.85rem;">Aucun candidat identifie</div>', unsafe_allow_html=True)
@@ -1264,7 +1266,7 @@ elif page == "Profils Debiteurs IA":
             for i, s in enumerate(samples, 1):
                 st.markdown(f'<div style="background:#f1f5f9;padding:4px 12px;border-radius:6px;'
                            f'margin:2px 0;font-family:monospace;font-size:0.82rem;">'
-                           f'{i}. {s}</div>', unsafe_allow_html=True)
+                           f'{i}. {_esc(s)}</div>', unsafe_allow_html=True)
 
 
 # =====================================================================
@@ -1318,12 +1320,12 @@ elif page == "Deep Dive":
         <div class="deep-meta">
             <span><b>Montant :</b> {row['amount']:,.2f} EUR</span>
             <span><b>Date :</b> {row['date']}</span>
-            <span><b>Debiteur :</b> {row['debtor_name']}</span>
+            <span><b>Debiteur :</b> {_esc(str(row['debtor_name']))}</span>
             <span><b>Pays :</b> {row['country']}</span>
         </div>
         <div class="deep-label" style="margin:14px 0;">
             <b>Libelle brut du virement :</b><br>
-            <code>{row['label'] if row['label'] else '(vide)'}</code>
+            <code>{_esc(row['label']) if row['label'] else '(vide)'}</code>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -1356,7 +1358,7 @@ elif page == "Deep Dive":
         inv_str = row["invoices_matched"]
         st.markdown(f'<div class="result-box result-ok"><b>Factures matchees :</b> {inv_str}</div>', unsafe_allow_html=True)
         if row["flags"]:
-            st.markdown(f'<div class="result-box result-flags"><b>Flags :</b> {row["flags"]}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="result-box result-flags"><b>Flags :</b> {_esc(str(row["flags"]))}</div>', unsafe_allow_html=True)
         if ctx and ctx.final_match:
             alloc = ctx.final_match.allocated
             if alloc:
@@ -1408,12 +1410,12 @@ elif page == "Deep Dive":
                 <div style="display:grid; grid-template-columns:30px 1fr 90px 70px 45px; gap:8px; align-items:center;
                             padding:8px 12px; margin:4px 0; background:{bg}; border:{border}; border-radius:8px; font-size:0.85rem;">
                     <span style="font-weight:800; color:#667eea;">#{i+1}</span>
-                    <span style="font-family:monospace; {'font-weight:700;color:#065f46;' if is_true else ''}">{rec['ref']}{check}</span>
+                    <span style="font-family:monospace; {'font-weight:700;color:#065f46;' if is_true else ''}">{_esc(str(rec['ref']))}{check}</span>
                     <span style="text-align:right; font-variant-numeric:tabular-nums;">{rec['amount']:,.2f}</span>
                     <span style="height:10px; background:#e2e8f0; border-radius:5px; overflow:hidden;">
                         <span style="display:block; height:100%; width:{bar_w}%; background:{bar_color}; border-radius:5px;"></span>
                     </span>
                     <span style="font-weight:700; color:#667eea; text-align:right;">{rec['score']:.0%}</span>
                 </div>
-                <div style="font-size:0.75rem; color:#64748b; font-style:italic; padding-left:42px; margin-bottom:4px;">{rec['reason']}</div>
+                <div style="font-size:0.75rem; color:#64748b; font-style:italic; padding-left:42px; margin-bottom:4px;">{_esc(str(rec['reason']))}</div>
                 """, unsafe_allow_html=True)
