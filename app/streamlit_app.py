@@ -376,6 +376,33 @@ if page == "Diagnostic Donnees":
             else:
                 st.success("Tous les IBAN paiement sont reconnus.")
 
+        # ── Qualité libellés (vital si IBAN ne marche pas) ───────────
+        st.markdown("### Qualité des libellés bancaires")
+        nb_pay = max(diag["n_payments"], 1)
+        pct_num = diag.get("labels_with_long_num", 0) * 100 / nb_pay
+        pct_kw  = diag.get("labels_with_inv_kw", 0) * 100 / nb_pay
+        if iban_rate < 10:
+            st.warning(
+                f"L'IBAN ne sert plus à rien ({iban_rate:.0f}%). Le seul "
+                f"recours est l'extraction de référence facture depuis le "
+                f"libellé. Vérifie ci-dessous que tes libellés contiennent "
+                f"effectivement les références.", icon="🔎"
+            )
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Libellés vides", f"{diag['labels_empty']:,}",
+                    f"{diag['labels_empty']*100/nb_pay:.1f}%")
+        col2.metric("Avec séquence ≥ 5 chiffres",
+                    f"{diag.get('labels_with_long_num',0):,}",
+                    f"{pct_num:.1f}%")
+        col3.metric("Avec mot-clé FAC/INV/FT…",
+                    f"{diag.get('labels_with_inv_kw',0):,}",
+                    f"{pct_kw:.1f}%")
+        if diag.get("sample_labels"):
+            st.markdown("**Échantillon de 30 libellés** — copie-colle ici si "
+                        "tu veux que j'adapte les regex de C0 :")
+            st.dataframe(pd.DataFrame(diag["sample_labels"]),
+                         hide_index=True, use_container_width=True)
+
         # Histogramme des longueurs : révèle un préfixe ou une troncature
         with st.expander("Distribution des longueurs d'IBAN (debug format)"):
             col1, col2 = st.columns(2)

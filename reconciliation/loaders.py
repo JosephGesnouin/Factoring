@@ -288,8 +288,23 @@ def diagnose(
     inv_currencies = Counter(inv.currency.value for inv in invoices)
 
     # ── Libellés (qualité) ───────────────────────────────────────────────
+    import re
     empty_labels = sum(1 for p in payments if not p.label_raw.strip())
     short_labels = sum(1 for p in payments if 0 < len(p.label_raw.strip()) < 8)
+
+    # Détection de motifs de référence facture dans le libellé.
+    # Une réconciliation par libellé suppose qu'on trouve au moins une
+    # séquence numérique longue (≥ 5 chiffres) ou un motif type FAC/INV.
+    pat_long_num = re.compile(r"\d{5,}")
+    pat_inv_kw   = re.compile(r"\b(FAC|FACT|INV|INVOICE|RECHN|FT|REC)\b", re.I)
+    labels_with_long_num = sum(1 for p in payments if pat_long_num.search(p.label_raw))
+    labels_with_inv_kw   = sum(1 for p in payments if pat_inv_kw.search(p.label_raw))
+
+    # Échantillon de libellés bruts pour inspection visuelle
+    sample_labels = [
+        {"id": p.id, "amount": p.amount, "label": p.label_raw[:120]}
+        for p in payments if p.label_raw.strip()
+    ][:30]
 
     # ── Échantillons pour visualisation ──────────────────────────────────
     sample_unknown_iban = [
@@ -343,6 +358,9 @@ def diagnose(
         # Qualité libellés
         "labels_empty": empty_labels,
         "labels_short": short_labels,
+        "labels_with_long_num": labels_with_long_num,
+        "labels_with_inv_kw": labels_with_inv_kw,
+        "sample_labels": sample_labels,
 
         # Échantillons
         "sample_unknown_iban": sample_unknown_iban,
