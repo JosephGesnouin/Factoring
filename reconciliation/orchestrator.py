@@ -137,7 +137,10 @@ class ReconciliationOrchestrator:
                 for d in duplicates:
                     ctx.processing_log.append({"event": "DUPLICATE_ALERT", "detail": d.alert_type})
                     if d.alert_type == "EXACT_DUPLICATE":
-                        logger.warning("Exact duplicate: %s ↔ %s", d.payment_id, d.duplicate_of)
+                        # DEBUG (et non WARNING) : sur les gros volumes ce log
+                        # inondait stdout. Le compteur `metrics.duplicate_alerts`
+                        # reste accessible pour le monitoring.
+                        logger.debug("Exact duplicate: %s ↔ %s", d.payment_id, d.duplicate_of)
             self._duplicate_index.add(payment)
 
             # ── C1: Exact matching ──

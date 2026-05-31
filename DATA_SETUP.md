@@ -232,6 +232,33 @@ exécution traite tous les paiements ; les suivantes sont instantanées
 tant que rien ne change. Pour invalider le cache : menu Streamlit
 (en haut à droite) → *Clear cache*.
 
+### J'ai un flot de "Exact duplicate: PAY-XXX ↔ PAY-YYY" dans la console
+
+Cause typique : ton `payments_all.csv` est la **concaténation de
+plusieurs extractions** (`_source_file` / `_source_extract` différents)
+qui se chevauchent. Les mêmes opérations bancaires apparaissent donc
+plusieurs fois.
+
+**Fix automatique** : le loader dédoublonne par défaut sur la clé
+``IBAN_EMETT + MT_REGLT_DEV + DT_REGLT + LIB_REGLT`` et logue un
+récapitulatif unique :
+
+```
+Dédoublonnage paiements : 4753 lignes retirées sur 9506 (clé = IBAN_EMETT + MT_REGLT_DEV + DT_REGLT + LIB_REGLT)
+```
+
+Pour désactiver (par ex. si tu veux que C2 produise des
+`DuplicateAlert` métier sur ces doublons) :
+
+```python
+from reconciliation.loaders import load_from_dir
+loaded = load_from_dir(data_dir, dedup_payments=False)
+```
+
+Le log par paiement `Exact duplicate: …` du pipeline est descendu de
+`WARNING` à `DEBUG` — invisible par défaut, mais toujours compté dans
+`metrics.duplicate_alerts`.
+
 ---
 
 ## 7. Pour aller plus loin

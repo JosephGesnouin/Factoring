@@ -196,7 +196,32 @@ def build_invoices(df: pd.DataFrame, only_open: bool = True) -> list[Invoice]:
     return invoices
 
 
-def build_payments(df: pd.DataFrame, limit: int | None = None) -> list[Payment]:
+def build_payments(
+    df: pd.DataFrame,
+    limit: int | None = None,
+    dedup: bool = True,
+) -> list[Payment]:
+    """Construit la liste de ``Payment``.
+
+    Si ``dedup`` (défaut), retire les doublons exacts au niveau du CSV.
+    La clé de dédoublonnage est ``IBAN_EMETT + MT_REGLT_DEV + DT_REGLT +
+    LIB_REGLT`` : ces lignes correspondent à des extractions répétées
+    de la même opération bancaire, pas à des cas métier ambigus.
+    Le nombre de doublons retirés est loggué en INFO.
+    """
+    if dedup and len(df):
+        before = len(df)
+        key_cols = [c for c in ("IBAN_EMETT", "MT_REGLT_DEV",
+                                "DT_REGLT", "LIB_REGLT") if c in df.columns]
+        if key_cols:
+            df = df.drop_duplicates(subset=key_cols, keep="first").reset_index(drop=True)
+            dropped = before - len(df)
+            if dropped > 0:
+                logger.info(
+                    "Dédoublonnage paiements : %d lignes retirées sur %d "
+                    "(clé = %s)", dropped, before, " + ".join(key_cols),
+                )
+
     payments: list[Payment] = []
     for idx, row in df.iterrows():
         if limit and len(payments) >= limit:
@@ -246,12 +271,22 @@ def load_from_dir(
     *,
     only_open_invoices: bool = True,
     payments_limit: int | None = None,
+    dedup_payments: bool = True,
 ) -> LoadedData:
     """Charge les 3 CSV depuis ``data_dir`` et renvoie tout ce qu'il faut
     pour appeler ``ReconciliationOrchestrator.setup()`` puis
     ``process_batch()``.
 
-    Lève ``FileNotFoundError`` si un fichier manque.
+    Paramètres
+    ----------
+    only_open_invoices : ne garder que les factures dont
+        ``document_balance_amount > 0`` (défaut).
+    payments_limit : optionnel, limite le nombre de paiements (smoke test).
+    dedup_payments : retirer les doublons exacts du CSV paiements
+        (défaut). Cas typique : plusieurs extractions concaténées avec
+        recouvrement, qui sinon génèrent un spam de "EXACT_DUPLICATE".
+
+    Lève ``FileNotFoundError`` si un fichier obligatoire manque.
     """
     data_dir = Path(data_dir)
     missing = [f for f in REQUIRED_FILES if not (data_dir / f).exists()]
@@ -269,6 +304,7 @@ def load_from_dir(
 
     debtors, iban_map = build_debtors(df_debtors)
     invoices = build_invoices(df_invoices, only_open=only_open_invoices)
-    payments = build_payments(df_payments, limit=payments_limit)
+    payments = build_payments(df_payments, limit=payments_limit,
+                              dedup=dedup_payments)
     return LoadedData(debtors=debtors, invoices=invoices,
                       payments=payments, iban_map=iban_map)
