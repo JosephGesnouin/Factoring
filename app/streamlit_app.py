@@ -148,10 +148,25 @@ st.markdown("""
 # =====================================================================
 # DATA
 # =====================================================================
-@st.cache_data(show_spinner="Generation des donnees et simulation (10 000+ paiements)...")
+import os
+from reconciliation.loaders import data_dir_is_ready
+
+# Mode de données :
+#   - Si FACTORING_DATA_DIR est défini ET contient les 3 CSV requis,
+#     on tourne sur les données réelles.
+#   - Sinon, on retombe sur la simulation (comportement historique).
+_DATA_DIR_ENV = os.environ.get("FACTORING_DATA_DIR", "").strip()
+_DATA_DIR = Path(_DATA_DIR_ENV).expanduser().resolve() if _DATA_DIR_ENV else None
+_USE_REAL = _DATA_DIR is not None and data_dir_is_ready(_DATA_DIR)
+
+
+@st.cache_data(show_spinner="Chargement des donnees et execution du pipeline...")
 def load_data():
-    from app.simulation_data import generate_all
     import warnings; warnings.filterwarnings("ignore")
+    if _USE_REAL:
+        from app.real_data import run_real
+        return run_real(_DATA_DIR)
+    from app.simulation_data import generate_all
     return generate_all(seed=42, target_payments=5000)
 
 
@@ -188,7 +203,19 @@ with st.sidebar:
     ], label_visibility="collapsed")
     st.divider()
     st.caption("Architecture 6 couches")
-    st.caption("50 debiteurs | 10k+ paiements")
+    if _USE_REAL:
+        st.success(f"Mode : **Donnees reelles**\n\n`{_DATA_DIR}`", icon="📁")
+    else:
+        if _DATA_DIR_ENV:
+            st.warning(
+                f"FACTORING_DATA_DIR pointe vers `{_DATA_DIR}` mais les "
+                "3 CSV requis sont absents. Mode simulation actif.",
+                icon="⚠️",
+            )
+        else:
+            st.info("Mode : **Simulation** (50 debiteurs, 5k paiements)\n\n"
+                    "Pour utiliser tes vrais fichiers : voir `DATA_SETUP.md`.",
+                    icon="🧪")
 
 data = load_data()
 df = data["df"]
