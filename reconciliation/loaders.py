@@ -38,6 +38,7 @@ Encoding : auto (utf-8, utf-8-sig, latin-1, cp1252).
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
@@ -48,6 +49,16 @@ import pandas as pd
 from .models import Currency, Debtor, Invoice, Payment
 
 logger = logging.getLogger(__name__)
+
+
+# IBAN : tout ce qui n'est pas alphanumérique est du bruit (espaces,
+# tirets, slashes, points, deux-points, virgules, retours chariot...).
+_IBAN_NOISE = re.compile(r"[^A-Z0-9]")
+# Pattern strict pour valider qu'on a bien un IBAN après nettoyage.
+_IBAN_STRICT = re.compile(r"^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$")
+# Recherche d'un IBAN dans une chaîne potentiellement bruitée
+# (ex. "IBAN: FR76 3000...", "FR7630001007941234567890185/BNP").
+_IBAN_SEARCH = re.compile(r"[A-Z]{2}\d{2}(?:[\s.\-]*[A-Z0-9]){10,30}")
 
 
 # =============================================================================
@@ -124,7 +135,29 @@ def parse_currency(v: Any) -> Currency:
 
 
 def normalise_iban(v: Any) -> str:
-    return _s(v).replace(" ", "").upper().strip()
+    """Extrait un IBAN canonique d'une valeur potentiellement bruitée.
+
+    - strip de tout caractère non alphanumérique (espaces, tirets,
+      slashes, points, deux-points...) après uppercase ;
+    - si après nettoyage on a un IBAN valide (format
+      ``[A-Z]{2}\\d{2}[A-Z0-9]{10,30}``), on le renvoie ;
+    - sinon, tente d'extraire un IBAN intégré dans la chaîne d'origine
+      (cas ``"IBAN: FR76 3000 ..."`` ou ``"FR76.../BNP"``).
+    """
+    raw = _s(v).upper().strip()
+    if not raw:
+        return ""
+    cleaned = _IBAN_NOISE.sub("", raw)
+    if _IBAN_STRICT.fullmatch(cleaned):
+        return cleaned
+    m = _IBAN_SEARCH.search(raw)
+    if m:
+        candidate = _IBAN_NOISE.sub("", m.group(0))
+        if _IBAN_STRICT.fullmatch(candidate):
+            return candidate
+    # Dernier recours : valeur nettoyée même si ne match pas le pattern
+    # (on ne lèvera pas une erreur silencieusement, le diagnostic le verra).
+    return cleaned
 
 
 # =============================================================================
@@ -405,6 +438,22 @@ def data_dir_is_ready(data_dir: Path) -> bool:
     return all((data_dir / f).exists() for f in REQUIRED_FILES)
 
 
+def _sample_raw_iban_columns(df: pd.DataFrame, n: int = 10) -> dict[str, list[str]]:
+    """Échantillonne les premières valeurs non vides de chaque colonne
+    candidate IBAN, pour permettre une inspection visuelle des formats.
+    """
+    out: dict[str, list[str]] = {}
+    for col in IBAN_DEBTOR_FALLBACK_COLS:
+        if col not in df.columns:
+            continue
+        vals = df[col].astype(str).map(lambda s: s.strip())
+        vals = vals[(vals != "") & (vals.str.lower() != "nan")]
+        if len(vals) == 0:
+            continue
+        out[col] = vals.head(n).tolist()
+    return out
+
+
 def load_from_dir(
     data_dir: Path,
     *,
@@ -446,6 +495,15 @@ def load_from_dir(
     payments = build_payments(df_payments, limit=payments_limit,
                               dedup=dedup_payments)
     diag = diagnose(debtors, invoices, payments, iban_map)
+    # Échantillon des valeurs brutes des colonnes candidates IBAN —
+    # utile pour debug quand le format empêche le match.
+    diag["raw_iban_columns_sample"] = _sample_raw_iban_columns(df_debtors)
+    diag["raw_payments_iban_sample"] = (
+        df_payments["IBAN_EMETT"].astype(str).map(lambda s: s.strip())
+        .pipe(lambda s: s[(s != "") & (s.str.lower() != "nan")])
+        .head(10).tolist()
+        if "IBAN_EMETT" in df_payments.columns else []
+    )
     logger.info(
         "Data quality : IBAN match=%.1f%% (%d/%d), invoice→debtor match=%.1f%% (%d/%d)",
         diag["iban_match_rate"] * 100, diag["payments_iban_known"], diag["n_payments"],

@@ -403,6 +403,29 @@ if page == "Diagnostic Donnees":
             st.dataframe(pd.DataFrame(diag["sample_labels"]),
                          hide_index=True, use_container_width=True)
 
+        # Échantillon des valeurs brutes (avant normalisation)
+        with st.expander("🔬 Valeurs IBAN brutes (avant normalisation)"):
+            st.caption("Ces valeurs sont prises directement dans le CSV "
+                       "**sans nettoyage**. Si les formats diffèrent entre "
+                       "débiteurs et paiements, c'est ce qui empêche le match.")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("**Côté débiteurs** (par colonne candidate)")
+                raw_cols = diag.get("raw_iban_columns_sample", {})
+                if raw_cols:
+                    for col, vals in raw_cols.items():
+                        st.markdown(f"`{col}` ({len(vals)} échantillons) :")
+                        st.code("\n".join(repr(v) for v in vals), language="text")
+                else:
+                    st.info("Aucune colonne candidate non vide.")
+            with col2:
+                st.markdown("**Côté paiements** (`IBAN_EMETT`)")
+                raw_pay = diag.get("raw_payments_iban_sample", [])
+                if raw_pay:
+                    st.code("\n".join(repr(v) for v in raw_pay), language="text")
+                else:
+                    st.info("Aucun IBAN_EMETT non vide.")
+
         # Histogramme des longueurs : révèle un préfixe ou une troncature
         with st.expander("Distribution des longueurs d'IBAN (debug format)"):
             col1, col2 = st.columns(2)
