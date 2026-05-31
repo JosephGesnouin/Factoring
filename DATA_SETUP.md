@@ -132,8 +132,11 @@ Colonnes obligatoires (les autres sont ignorées) :
 | `client_debtor_number`   | Identifiant débiteur (clé jointure)  | `Debtor.id`               |
 | `legacy_debtor_number`   | Identifiant legacy (fallback)        | `Debtor.id` (fallback)    |
 | `debtor_name`            | Nom commercial                       | `Debtor.name`             |
-| `IBAN`                   | IBAN du débiteur                     | `Debtor.iban` + index IBAN→débiteur |
+| `IBAN` ⮕ `identifiers_3` ⮕ `identifiers_2` ⮕ `identifiers_1` | IBAN du débiteur. Le loader essaie ces colonnes dans l'ordre, première non vide gagne. | `Debtor.iban` + index IBAN→débiteur |
 | `country_code`           | Pays (ISO 2)                         | `Debtor.country`          |
+
+> **Si tes IBAN sont ailleurs**, ajoute le nom de colonne dans la
+> constante `IBAN_DEBTOR_FALLBACK_COLS` de `reconciliation/loaders.py`.
 
 ### `invoices_all.csv`
 

@@ -131,8 +131,30 @@ def normalise_iban(v: Any) -> str:
 # Mappers DataFrame -> dataclasses
 # =============================================================================
 
+#: Colonnes du fichier débiteurs susceptibles de contenir l'IBAN.
+#: Essayées dans l'ordre, première non vide gagne. Couvre les schémas
+#: où l'IBAN est rangé dans une colonne d'identifiants secondaires.
+IBAN_DEBTOR_FALLBACK_COLS = ("IBAN", "identifiers_3", "identifiers_2", "identifiers_1")
+
+
+def _extract_iban(row: pd.Series) -> str:
+    """Retourne le premier IBAN non vide trouvé dans les colonnes
+    candidates de ``row`` (déjà nettoyé via ``normalise_iban``).
+    """
+    for col in IBAN_DEBTOR_FALLBACK_COLS:
+        val = normalise_iban(row.get(col))
+        if val:
+            return val
+    return ""
+
+
 def build_debtors(df: pd.DataFrame) -> tuple[list[Debtor], dict[str, str]]:
-    """Retourne ``(debtors, iban_to_debtor_id)``."""
+    """Retourne ``(debtors, iban_to_debtor_id)``.
+
+    Cherche l'IBAN dans plusieurs colonnes possibles (cf.
+    ``IBAN_DEBTOR_FALLBACK_COLS``) — utile quand le schéma source range
+    l'IBAN dans ``identifiers_3`` au lieu de ``IBAN``.
+    """
     debtors: list[Debtor] = []
     iban_map: dict[str, str] = {}
     for _, row in df.iterrows():
@@ -140,7 +162,7 @@ def build_debtors(df: pd.DataFrame) -> tuple[list[Debtor], dict[str, str]]:
                or _s(row.get("legacy_debtor_number")).strip())
         if not did:
             continue
-        iban = normalise_iban(row.get("IBAN"))
+        iban = _extract_iban(row)
         d = Debtor(
             id=did,
             name=_s(row.get("debtor_name")).strip(),
