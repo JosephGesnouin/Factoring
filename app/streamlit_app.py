@@ -188,7 +188,10 @@ with st.sidebar:
     st.markdown("### 🏦 Reconciliation IA")
     st.caption("Factoring & Finance Receivables")
     st.divider()
-    page = st.radio("Navigation", [
+    # En mode données réelles, on ajoute en tête une page Diagnostic
+    # qui explique d'éventuels problèmes de qualité (IBAN non couverts,
+    # factures orphelines, etc.) responsables de bas taux de matching.
+    _nav_pages = (["Diagnostic Donnees"] if _USE_REAL else []) + [
         "Executive Summary",
         "Architecture",
         "Factures",
@@ -200,7 +203,8 @@ with st.sidebar:
         "Mapping Complet",
         "Profils Debiteurs IA",
         "Deep Dive",
-    ], label_visibility="collapsed")
+    ]
+    page = st.radio("Navigation", _nav_pages, label_visibility="collapsed")
     st.divider()
     st.caption("Architecture 6 couches")
     if _USE_REAL:
@@ -226,6 +230,144 @@ review = m.by_layer.get(6, 0)
 auto_pct = auto / total * 100
 review_pct = review / total * 100
 total_eur = df["amount"].sum()
+
+
+# =====================================================================
+# PAGE 0 — DIAGNOSTIC DONNEES (mode reel uniquement)
+# =====================================================================
+if page == "Diagnostic Donnees":
+    diag = data.get("diagnostic") or {}
+    st.markdown("""
+    <div class="hero">
+      <h1>Diagnostic des donnees</h1>
+      <div class="sub">Qualite des CSV charges et causes probables d'un taux de matching faible</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    if not diag:
+        st.info("Pas de rapport de diagnostic disponible.")
+    else:
+        # ── KPIs ──────────────────────────────────────────────────────
+        iban_rate = diag["iban_match_rate"] * 100
+        inv_rate  = diag["invoice_debtor_match_rate"] * 100
+
+        def _badge_color(rate: float) -> str:
+            return C_GREEN if rate >= 70 else (C_YELLOW if rate >= 30 else C_RED)
+
+        st.markdown(f"""
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <div class="value">{diag['n_payments']:,}</div>
+            <div class="label">Paiements charges</div>
+          </div>
+          <div class="kpi-card">
+            <div class="value">{diag['n_invoices']:,}</div>
+            <div class="label">Factures ouvertes</div>
+          </div>
+          <div class="kpi-card">
+            <div class="value">{diag['n_debtors']:,}</div>
+            <div class="label">Debiteurs</div>
+            <div class="sub-val">{diag['iban_in_debtors']:,} avec IBAN</div>
+          </div>
+          <div class="kpi-card">
+            <div class="value" style="color:{_badge_color(iban_rate)}">{iban_rate:.1f}%</div>
+            <div class="label">IBAN paiements connus</div>
+            <div class="sub-val">{diag['payments_iban_known']:,} / {diag['n_payments']:,}</div>
+          </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # ── Verdict synthese ─────────────────────────────────────────
+        st.markdown("### Verdict")
+        verdicts = []
+        if iban_rate < 30:
+            verdicts.append(
+                ("error",
+                 f"**IBAN paiements ≠ IBAN débiteurs**. Seulement {iban_rate:.0f}% "
+                 f"des paiements ont un IBAN_EMETT reconnu. La couche C1-R004 "
+                 f"(IBAN+montant), principal levier de matching, ne peut pas "
+                 f"travailler. Vérifie que la colonne **IBAN** de `debtors_all.csv` "
+                 f"contient bien les IBAN **des donneurs d'ordre** (et pas tes "
+                 f"propres IBAN de factor).")
+            )
+        elif iban_rate < 70:
+            verdicts.append(
+                ("warning",
+                 f"Couverture IBAN partielle ({iban_rate:.0f}%). Voir l'echantillon "
+                 f"des IBAN inconnus ci-dessous.")
+            )
+        if inv_rate < 70:
+            verdicts.append(
+                ("warning",
+                 f"**Factures orphelines** : {diag['invoices_debtor_unknown']:,} "
+                 f"factures ({100-inv_rate:.0f}%) ont un `debtor_number` qui ne "
+                 f"correspond a aucun debiteur charge. Verifie la jointure "
+                 f"`invoices.debtor_number` <-> `debtors.client_debtor_number`.")
+            )
+        if diag["labels_empty"] > diag["n_payments"] * 0.5:
+            verdicts.append(
+                ("warning",
+                 f"{diag['labels_empty']:,} paiements ont un libelle vide. "
+                 f"C1-R001 (reference exacte dans le libelle) ne pourra rien faire.")
+            )
+        if not verdicts:
+            st.success("Aucun probleme structurel detecte sur les donnees chargees.", icon="✅")
+        else:
+            for lvl, msg in verdicts:
+                getattr(st, lvl)(msg)
+
+        # ── Detail jointures ──────────────────────────────────────────
+        st.markdown("### Jointures")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("**Pont IBAN paiements → débiteurs**")
+            st.markdown(f"""
+- IBAN distincts dans `debtors_all.csv` : **{diag['iban_in_debtors']:,}**
+- Paiements avec un IBAN_EMETT renseigné : **{diag['payments_with_iban']:,}**
+- … dont reconnus : **{diag['payments_iban_known']:,}** ({iban_rate:.1f}%)
+- … dont inconnus : **{diag['payments_iban_unknown']:,}**
+- Paiements sans IBAN_EMETT : **{diag['payments_without_iban']:,}**
+""")
+        with col2:
+            st.markdown("**Pont factures → débiteurs**")
+            st.markdown(f"""
+- Factures avec `debtor_number` reconnu : **{diag['invoices_debtor_known']:,}** ({inv_rate:.1f}%)
+- Factures avec `debtor_number` inconnu : **{diag['invoices_debtor_unknown']:,}**
+- Factures sans `debtor_number` : **{diag['invoices_debtor_empty']:,}**
+""")
+
+        # ── Devises ──────────────────────────────────────────────────
+        st.markdown("### Devises")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown("**Paiements**")
+            st.dataframe(pd.DataFrame(
+                sorted(diag["pay_currencies"].items(),
+                       key=lambda x: -x[1]),
+                columns=["Devise", "N paiements"]),
+                hide_index=True, use_container_width=True)
+        with col2:
+            st.markdown("**Factures**")
+            st.dataframe(pd.DataFrame(
+                sorted(diag["inv_currencies"].items(),
+                       key=lambda x: -x[1]),
+                columns=["Devise", "N factures"]),
+                hide_index=True, use_container_width=True)
+
+        # ── Echantillons ─────────────────────────────────────────────
+        if diag["sample_unknown_iban"]:
+            st.markdown("### Échantillon : paiements à IBAN inconnu")
+            st.caption("Compare ces IBAN avec la colonne IBAN de tes debiteurs "
+                       "pour identifier la source du mismatch.")
+            st.dataframe(pd.DataFrame(diag["sample_unknown_iban"]),
+                         hide_index=True, use_container_width=True)
+
+        if diag["sample_invoices_orphan"]:
+            st.markdown("### Échantillon : factures orphelines")
+            st.caption("Le `debtor_id` de ces factures n'existe pas dans "
+                       "`debtors_all.csv` (jointure cassée).")
+            st.dataframe(pd.DataFrame(diag["sample_invoices_orphan"]),
+                         hide_index=True, use_container_width=True)
 
 
 # =====================================================================

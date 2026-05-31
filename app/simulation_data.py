@@ -668,4 +668,5 @@ def generate_all(seed=42, months=range(1,13), target_payments=10000):
         "n_debtors": len(debtors), "credit_notes": credit_notes,
         "ground_truth": ground_truth,
         "debtor_profiles": {k: v.to_dict() for k, v in orch.debtor_profiler.profiles.items()},
+        "diagnostic": None,
     }

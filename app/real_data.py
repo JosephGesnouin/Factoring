@@ -132,4 +132,6 @@ def run_real(data_dir: str | Path, payments_limit: int | None = None) -> dict[st
         "debtor_profiles": {
             k: v.to_dict() for k, v in orch.debtor_profiler.profiles.items()
         },
+        # Spécifique au mode données réelles : rapport de qualité.
+        "diagnostic": loaded.diagnostic,
     }

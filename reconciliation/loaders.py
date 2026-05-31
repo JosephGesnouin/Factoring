@@ -255,6 +255,89 @@ class LoadedData:
     invoices: list[Invoice]
     payments: list[Payment]
     iban_map: dict[str, str]
+    diagnostic: dict[str, Any] | None = None
+
+
+def diagnose(
+    debtors: list[Debtor],
+    invoices: list[Invoice],
+    payments: list[Payment],
+    iban_map: dict[str, str],
+) -> dict[str, Any]:
+    """Calcule un rapport de qualité des données.
+
+    Vise une question : "pourquoi mon taux de matching est-il bas ?"
+    Identifie les ruptures de jointure entre les 3 tables.
+    """
+    debtor_ids = {d.id for d in debtors}
+
+    # ── IBAN payments vs IBAN debtors ────────────────────────────────────
+    pay_ibans = [p.iban_source for p in payments if p.iban_source]
+    pay_iban_known = sum(1 for ib in pay_ibans if ib in iban_map)
+    pay_iban_empty = sum(1 for p in payments if not p.iban_source)
+
+    # ── debtor_number factures vs id débiteurs ───────────────────────────
+    inv_debtors_ok = sum(1 for inv in invoices
+                         if inv.debtor_id and inv.debtor_id in debtor_ids)
+    inv_debtors_empty = sum(1 for inv in invoices if not inv.debtor_id)
+    inv_debtors_unknown = len(invoices) - inv_debtors_ok - inv_debtors_empty
+
+    # ── Devises ──────────────────────────────────────────────────────────
+    from collections import Counter
+    pay_currencies = Counter(p.currency.value for p in payments)
+    inv_currencies = Counter(inv.currency.value for inv in invoices)
+
+    # ── Libellés (qualité) ───────────────────────────────────────────────
+    empty_labels = sum(1 for p in payments if not p.label_raw.strip())
+    short_labels = sum(1 for p in payments if 0 < len(p.label_raw.strip()) < 8)
+
+    # ── Échantillons pour visualisation ──────────────────────────────────
+    sample_unknown_iban = [
+        {"id": p.id, "iban": p.iban_source, "amount": p.amount,
+         "label": p.label_raw[:80]}
+        for p in payments
+        if p.iban_source and p.iban_source not in iban_map
+    ][:20]
+
+    sample_invoices_orphan = [
+        {"id": inv.id, "ref": inv.reference, "debtor_id": inv.debtor_id,
+         "amount": inv.amount}
+        for inv in invoices
+        if inv.debtor_id and inv.debtor_id not in debtor_ids
+    ][:20]
+
+    return {
+        # Totaux
+        "n_debtors": len(debtors),
+        "n_invoices": len(invoices),
+        "n_payments": len(payments),
+
+        # Pont IBAN
+        "iban_in_debtors": len(iban_map),
+        "payments_with_iban": len(pay_ibans),
+        "payments_without_iban": pay_iban_empty,
+        "payments_iban_known": pay_iban_known,
+        "payments_iban_unknown": len(pay_ibans) - pay_iban_known,
+        "iban_match_rate": (pay_iban_known / len(payments)) if payments else 0.0,
+
+        # Pont débiteur factures
+        "invoices_debtor_known": inv_debtors_ok,
+        "invoices_debtor_unknown": inv_debtors_unknown,
+        "invoices_debtor_empty": inv_debtors_empty,
+        "invoice_debtor_match_rate": (inv_debtors_ok / len(invoices)) if invoices else 0.0,
+
+        # Devises
+        "pay_currencies": dict(pay_currencies),
+        "inv_currencies": dict(inv_currencies),
+
+        # Qualité libellés
+        "labels_empty": empty_labels,
+        "labels_short": short_labels,
+
+        # Échantillons
+        "sample_unknown_iban": sample_unknown_iban,
+        "sample_invoices_orphan": sample_invoices_orphan,
+    }
 
 
 REQUIRED_FILES = ("debtors_all.csv", "invoices_all.csv", "payments_all.csv")
@@ -306,5 +389,19 @@ def load_from_dir(
     invoices = build_invoices(df_invoices, only_open=only_open_invoices)
     payments = build_payments(df_payments, limit=payments_limit,
                               dedup=dedup_payments)
+    diag = diagnose(debtors, invoices, payments, iban_map)
+    logger.info(
+        "Data quality : IBAN match=%.1f%% (%d/%d), invoice→debtor match=%.1f%% (%d/%d)",
+        diag["iban_match_rate"] * 100, diag["payments_iban_known"], diag["n_payments"],
+        diag["invoice_debtor_match_rate"] * 100,
+        diag["invoices_debtor_known"], diag["n_invoices"],
+    )
+    if diag["iban_match_rate"] < 0.1:
+        logger.warning(
+            "Très peu d'IBAN paiement matchent un débiteur (%d%%). "
+            "Le taux de réconciliation sera bas. "
+            "Vérifie que IBAN_EMETT correspond à la colonne IBAN de debtors_all.csv.",
+            int(diag["iban_match_rate"] * 100),
+        )
     return LoadedData(debtors=debtors, invoices=invoices,
-                      payments=payments, iban_map=iban_map)
+                      payments=payments, iban_map=iban_map, diagnostic=diag)
