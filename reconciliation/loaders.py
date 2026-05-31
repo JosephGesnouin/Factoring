@@ -293,11 +293,21 @@ def diagnose(
 
     # ── Échantillons pour visualisation ──────────────────────────────────
     sample_unknown_iban = [
-        {"id": p.id, "iban": p.iban_source, "amount": p.amount,
+        {"id": p.id, "iban_paiement": p.iban_source, "amount": p.amount,
          "label": p.label_raw[:80]}
         for p in payments
         if p.iban_source and p.iban_source not in iban_map
     ][:20]
+
+    # Échantillon des IBAN connus côté débiteurs : utile pour comparer
+    # visuellement avec sample_unknown_iban et détecter un problème de
+    # format / longueur / source.
+    sample_known_iban = [
+        {"debtor_id": did, "debtor_name": next(
+            (d.name for d in debtors if d.id == did), ""),
+         "iban_debiteur": ib, "length": len(ib)}
+        for ib, did in list(iban_map.items())[:20]
+    ]
 
     sample_invoices_orphan = [
         {"id": inv.id, "ref": inv.reference, "debtor_id": inv.debtor_id,
@@ -336,7 +346,13 @@ def diagnose(
 
         # Échantillons
         "sample_unknown_iban": sample_unknown_iban,
+        "sample_known_iban": sample_known_iban,
         "sample_invoices_orphan": sample_invoices_orphan,
+
+        # Histogrammes de longueur IBAN — révèle un mismatch de format
+        # (préfixe, troncature, espacement perdu...)
+        "iban_pay_lengths": dict(Counter(len(p.iban_source) for p in payments if p.iban_source)),
+        "iban_deb_lengths": dict(Counter(len(ib) for ib in iban_map.keys())),
     }
 
 

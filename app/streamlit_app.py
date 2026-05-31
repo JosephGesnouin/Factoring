@@ -354,13 +354,43 @@ if page == "Diagnostic Donnees":
                 columns=["Devise", "N factures"]),
                 hide_index=True, use_container_width=True)
 
-        # ── Echantillons ─────────────────────────────────────────────
-        if diag["sample_unknown_iban"]:
-            st.markdown("### Échantillon : paiements à IBAN inconnu")
-            st.caption("Compare ces IBAN avec la colonne IBAN de tes debiteurs "
-                       "pour identifier la source du mismatch.")
-            st.dataframe(pd.DataFrame(diag["sample_unknown_iban"]),
-                         hide_index=True, use_container_width=True)
+        # ── Comparaison IBAN cote a cote (LE point critique) ─────────
+        st.markdown("### IBAN : comparaison côte à côte")
+        st.caption("**Si les deux colonnes se ressemblent (mêmes pays, "
+                   "même longueur), c'est un problème de format. Si elles "
+                   "sont structurellement différentes, l'IBAN_EMETT n'est "
+                   "pas l'IBAN du débiteur — il faut un autre champ.**")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.markdown(f"**IBAN attendus** (col. `IBAN` de `debtors_all.csv`, {len(diag.get('sample_known_iban',[]))} affichés)")
+            if diag.get("sample_known_iban"):
+                st.dataframe(pd.DataFrame(diag["sample_known_iban"]),
+                             hide_index=True, use_container_width=True)
+            else:
+                st.info("Aucun IBAN dans `debtors_all.csv` — la colonne est vide.")
+        with col2:
+            st.markdown(f"**IBAN reçus** (col. `IBAN_EMETT` de `payments_all.csv`, {len(diag.get('sample_unknown_iban',[]))} affichés)")
+            if diag["sample_unknown_iban"]:
+                st.dataframe(pd.DataFrame(diag["sample_unknown_iban"]),
+                             hide_index=True, use_container_width=True)
+            else:
+                st.success("Tous les IBAN paiement sont reconnus.")
+
+        # Histogramme des longueurs : révèle un préfixe ou une troncature
+        with st.expander("Distribution des longueurs d'IBAN (debug format)"):
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("**Côté débiteurs**")
+                st.dataframe(pd.DataFrame(
+                    sorted(diag.get("iban_deb_lengths", {}).items()),
+                    columns=["Longueur", "N IBAN"]),
+                    hide_index=True, use_container_width=True)
+            with col2:
+                st.markdown("**Côté paiements**")
+                st.dataframe(pd.DataFrame(
+                    sorted(diag.get("iban_pay_lengths", {}).items()),
+                    columns=["Longueur", "N IBAN"]),
+                    hide_index=True, use_container_width=True)
 
         if diag["sample_invoices_orphan"]:
             st.markdown("### Échantillon : factures orphelines")
