@@ -167,7 +167,7 @@ def normalise_iban(v: Any) -> str:
 #: Colonnes du fichier débiteurs susceptibles de contenir l'IBAN.
 #: Essayées dans l'ordre, première non vide gagne. Couvre les schémas
 #: où l'IBAN est rangé dans une colonne d'identifiants secondaires.
-IBAN_DEBTOR_FALLBACK_COLS = ("IBAN", "identifiers_3", "identifiers_2", "identifiers_1")
+IBAN_DEBTOR_FALLBACK_COLS = ("mandate_id_RUM", "identifiers_3", "IBAN")
 
 
 def _extract_iban(row: pd.Series) -> str:

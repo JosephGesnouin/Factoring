@@ -188,10 +188,7 @@ with st.sidebar:
     st.markdown("### 🏦 Reconciliation IA")
     st.caption("Factoring & Finance Receivables")
     st.divider()
-    # En mode données réelles, on ajoute en tête une page Diagnostic
-    # qui explique d'éventuels problèmes de qualité (IBAN non couverts,
-    # factures orphelines, etc.) responsables de bas taux de matching.
-    _nav_pages = (["Diagnostic Donnees"] if _USE_REAL else []) + [
+    _nav_pages = [
         "Executive Summary",
         "Architecture",
         "Factures",
