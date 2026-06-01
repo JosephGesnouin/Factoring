@@ -314,13 +314,49 @@ class PaymentPreprocessor:
         return signals
 
     def _extract_refs(self, label: str) -> list[str]:
-        """Extract all potential references from label."""
-        refs = []
+        """Extract all potential references from label.
+
+        Combine deux sources :
+        - les patterns historiques de C0 (REF_PATTERNS) qui ciblent les
+          formats français les plus courants ;
+        - le nouvel extracteur multilingue (reference_extractor) qui
+          couvre FR/EN/DE/IT/ES/NL/PL + ISO 20022 + amorces contextuelles
+          + génération de variantes.
+
+        L'union des deux maximise le rappel (recall) en C0, ce qui
+        alimente directement le hash index de C1 et la fenêtre de
+        candidats fuzzy de C3.
+        """
+        from .reference_extractor import extract_canonical_refs, generate_variants
+
+        refs: list[str] = []
+        seen: set[str] = set()
+
+        # 1) Patterns historiques (ne pas casser la rétrocompat)
         for pattern in REF_PATTERNS:
             for m in pattern.finditer(label):
                 ref = re.sub(r"[^A-Z0-9]", "", m.group(1).upper())
-                if ref and ref not in refs and len(ref) >= 3:
+                if ref and ref not in seen and len(ref) >= 3:
                     refs.append(ref)
+                    seen.add(ref)
+
+        # 2) Nouveaux patterns multilingues (rappel élargi)
+        for ref in extract_canonical_refs(label):
+            if ref not in seen and len(ref) >= 3:
+                refs.append(ref)
+                seen.add(ref)
+
+        # 3) Variantes : pour chaque référence canonique, génère les
+        #    formes alternatives (avec/sans séparateurs, padding) afin
+        #    que le hash index de C1 puisse matcher quelle que soit la
+        #    représentation en base.
+        for ref in list(refs):
+            for variant in generate_variants(ref):
+                v = re.sub(r"[^A-Z0-9]", "", variant.upper())
+                if v and v not in seen and len(v) >= 3:
+                    refs.append(v)
+                    seen.add(v)
+
         return refs
 
     def _extract_amounts(self, label: str) -> list[float]:
