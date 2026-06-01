@@ -275,7 +275,10 @@ class PaymentPreprocessor:
 
         # Signal 1: Raw references — start with existing refs (preserve caller-injected typos)
         existing_refs = list(payment.signals.raw_refs) if payment.signals.raw_refs else []
-        new_refs = self._extract_refs(label)
+        # On passe label_raw au parseur template-based pour préserver
+        # les séparateurs /, *, points qui structurent les patterns SEPA
+        # et factoring (sinon la normalisation C0 les casse).
+        new_refs = self._extract_refs(label, raw_label=payment.label_raw)
         # Merge: existing first, then new (dedup)
         seen = set(existing_refs)
         merged = list(existing_refs)
@@ -308,56 +311,86 @@ class PaymentPreprocessor:
         # Signal 6: Label quality score
         signals.label_quality = self._compute_label_quality(label, signals)
 
+        # Signal 7: Structured parse output (template-based engine).
+        # IMPORTANT : on passe le libellé BRUT (pas le normalisé) car le
+        # parseur s'appuie sur les séparateurs originaux (/, *, points)
+        # pour reconnaître les templates SEPA et factoring. La
+        # normalisation C0 (expansion d'abréviations, suppression des
+        # séparateurs) casserait ces patterns.
+        self._attach_parsed_label(payment.label_raw or label, signals)
+
         # Signal 7: Fingerprint
         signals.fingerprint = payment.fingerprint
 
         return signals
 
-    def _extract_refs(self, label: str) -> list[str]:
+    def _extract_refs(self, label: str, raw_label: str | None = None) -> list[str]:
         """Extract all potential references from label.
 
-        Combine deux sources :
-        - les patterns historiques de C0 (REF_PATTERNS) qui ciblent les
-          formats français les plus courants ;
-        - le nouvel extracteur multilingue (reference_extractor) qui
-          couvre FR/EN/DE/IT/ES/NL/PL + ISO 20022 + amorces contextuelles
-          + génération de variantes.
+        Combine 3 sources, dans cet ordre de priorité :
 
-        L'union des deux maximise le rappel (recall) en C0, ce qui
-        alimente directement le hash index de C1 et la fenêtre de
-        candidats fuzzy de C3.
+        1. **Parseur template-based** (``reconciliation.label_parser``) :
+           moteur principal. Reconnaît ~70 templates structurés (SEPA
+           ``/MID/NBT/SDT/RBR``, factoring ``DISPO/REMISE``,
+           ``BORDEREAU``, ``/INV/``, ``CAT D``, etc.). **Lancé sur le
+           libellé brut** car il s'appuie sur les séparateurs originaux.
+        2. **Extracteur multilingue par mots-clés** (``reference_extractor``)
+           : FR/EN/DE/IT/ES/NL/PL + ISO 20022 + amorces ``REF:``, ``N°``.
+        3. **Patterns historiques** (``REF_PATTERNS``) : sécurité pour
+           ne casser aucun cas couvert avant.
+
+        Les variantes (avec/sans séparateurs, padding zéros) sont
+        générées pour chaque référence canonique afin que le hash index
+        de C1 matche quelle que soit la représentation en base.
         """
         from .reference_extractor import extract_canonical_refs, generate_variants
+        from .label_parser import parse as parse_label
 
         refs: list[str] = []
         seen: set[str] = set()
 
-        # 1) Patterns historiques (ne pas casser la rétrocompat)
+        def _add(value: str) -> None:
+            v = re.sub(r"[^A-Z0-9]", "", value.upper())
+            if v and v not in seen and len(v) >= 3:
+                refs.append(v)
+                seen.add(v)
+
+        # 1) Parseur template-based sur le libellé BRUT (séparateurs intacts)
+        source_for_parser = raw_label if raw_label else label
+        parsed = parse_label(source_for_parser)
+        for ref in parsed.invoice_refs:
+            _add(ref)
+        for ref in parsed.bordereau_refs:
+            _add(ref)
+        for code_val in parsed.factoring_codes.values():
+            _add(code_val)
+        for code_val in parsed.sepa_fields.values():
+            _add(code_val)
+
+        # 2) Extracteur multilingue par mots-clés (sur label normalisé)
+        for ref in extract_canonical_refs(label):
+            _add(ref)
+
+        # 3) Patterns historiques (rétro-compat, sur label normalisé)
         for pattern in REF_PATTERNS:
             for m in pattern.finditer(label):
-                ref = re.sub(r"[^A-Z0-9]", "", m.group(1).upper())
-                if ref and ref not in seen and len(ref) >= 3:
-                    refs.append(ref)
-                    seen.add(ref)
+                _add(m.group(1))
 
-        # 2) Nouveaux patterns multilingues (rappel élargi)
-        for ref in extract_canonical_refs(label):
-            if ref not in seen and len(ref) >= 3:
-                refs.append(ref)
-                seen.add(ref)
-
-        # 3) Variantes : pour chaque référence canonique, génère les
-        #    formes alternatives (avec/sans séparateurs, padding) afin
-        #    que le hash index de C1 puisse matcher quelle que soit la
-        #    représentation en base.
+        # 4) Variantes : pour chaque référence canonique, génère les
+        #    formes alternatives. Permet au hash index de C1 de matcher
+        #    quelle que soit la représentation en base.
         for ref in list(refs):
             for variant in generate_variants(ref):
-                v = re.sub(r"[^A-Z0-9]", "", variant.upper())
-                if v and v not in seen and len(v) >= 3:
-                    refs.append(v)
-                    seen.add(v)
+                _add(variant)
 
         return refs
+
+    def _attach_parsed_label(self, label: str, signals: PaymentSignals) -> None:
+        """Attache le résultat structuré du parseur template-based à
+        ``signals.parsed_label`` pour consommation par C1/C2.
+        """
+        from .label_parser import parse as parse_label
+        signals.parsed_label = parse_label(label)
 
     def _extract_amounts(self, label: str) -> list[float]:
         """Extract amounts mentioned in the label text."""

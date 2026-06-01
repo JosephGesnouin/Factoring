@@ -129,6 +129,11 @@ class PaymentSignals:
     label_class: LabelClass = LabelClass.EMPTY
     label_quality: float = 0.0
     fingerprint: str = ""
+    # Sortie structurée du parseur template-based (voir
+    # ``reconciliation.label_parser``). Permet à C1/C2 d'accéder aux
+    # numéros de bordereau, IBAN inline, codes SEPA/factoring, etc.,
+    # sans ré-extraire le libellé.
+    parsed_label: Any | None = None
 
 
 @dataclass
