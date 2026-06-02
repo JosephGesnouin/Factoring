@@ -85,6 +85,10 @@ class DiagnosticReport:
     invoice_refs_in_hash: int
     sample_invoice_refs_in_hash: list[str]
 
+    # IBAN deep dive : permet de diagnostiquer si IBAN_BENEF est un
+    # vIBAN par débiteur ou bien le compte unique du factor.
+    iban_deep_dive: dict[str, Any] = field(default_factory=dict)
+
 
 def classify(
     ctx: ReconciliationContext,
@@ -180,6 +184,22 @@ def build_report(
     # Hash index stats : combien d'invoice refs disponibles à matcher ?
     invoice_refs = [inv.reference for inv in invoices if inv.reference]
 
+    # ── IBAN deep dive ─────────────────────────────────────────────────
+    payment_iban_counter = Counter(p.iban_source for p in payments if p.iban_source)
+    debtor_iban_set = set(iban_map.keys())
+    payment_iban_set = set(payment_iban_counter.keys())
+    overlap = sum(1 for iban in payment_iban_set if iban in debtor_iban_set)
+    iban_deep_dive = {
+        "n_unique_payment_iban": len(payment_iban_set),
+        "n_unique_debtor_iban":  len(debtor_iban_set),
+        "overlap":               overlap,
+        "overlap_pct":           overlap * 100 / max(len(payment_iban_set), 1),
+        "top_payment_iban":      payment_iban_counter.most_common(20),
+        "top_debtor_iban":       list(debtor_iban_set)[:20],
+        "payment_iban_set":      payment_iban_set,
+        "debtor_iban_set":       debtor_iban_set,
+    }
+
     return DiagnosticReport(
         total_payments=total,
         matched_auto=matched,
@@ -193,6 +213,7 @@ def build_report(
         payments_with_no_iban=n_no_iban,
         invoice_refs_in_hash=len(invoice_refs),
         sample_invoice_refs_in_hash=invoice_refs[:10],
+        iban_deep_dive=iban_deep_dive,
     )
 
 
@@ -230,6 +251,44 @@ def format_report(report: DiagnosticReport) -> str:
     p(f"  Paiements sans IBAN_BENEF   : {report.payments_with_no_iban:>7,} "
       f"({report.payments_with_no_iban*100/max(report.total_payments,1):.1f}%)")
     p("")
+
+    # ── IBAN DEEP DIVE : quelle est la vraie source ? ───────────────────
+    iban_dd = getattr(report, "iban_deep_dive", None)
+    if iban_dd:
+        p("─" * 78)
+        p(" Deep dive IBAN : quelle est la VRAIE source d'identification ?")
+        p("─" * 78)
+        p(f"  Valeurs UNIQUES d'IBAN_BENEF  : {iban_dd['n_unique_payment_iban']:>7,}")
+        p(f"  Valeurs UNIQUES IBAN débiteur : {iban_dd['n_unique_debtor_iban']:>7,}")
+        p(f"  Overlap (IBAN paie ∩ débit)   : {iban_dd['overlap']:>7,} "
+          f"({iban_dd['overlap_pct']:.1f}% des IBAN_BENEF uniques)")
+        p("")
+        if iban_dd["n_unique_payment_iban"] < 50 and iban_dd["n_unique_payment_iban"] > 0:
+            p(f"  ⚠️  ALERTE : seulement {iban_dd['n_unique_payment_iban']} valeurs "
+              f"uniques d'IBAN_BENEF !")
+            p( "      → C'est probablement le COMPTE DU FACTOR (pas un vIBAN par débiteur).")
+            p( "      → L'identification du débiteur via IBAN_BENEF est IMPOSSIBLE.")
+            p( "      → Soit utiliser un autre champ payment, soit matcher par montant+date.")
+            p("")
+        elif iban_dd["overlap_pct"] < 5 and iban_dd["n_unique_payment_iban"] > 50:
+            p(f"  ⚠️  ALERTE : {iban_dd['n_unique_payment_iban']:,} IBAN_BENEF uniques "
+              f"mais seuls {iban_dd['overlap_pct']:.1f}% sont dans la map débiteur.")
+            p( "      → Format ou source différent entre IBAN_BENEF et debtors.IBAN.")
+            p( "      → Compare les TOP 20 ci-dessous pour identifier le pattern.")
+            p("")
+        p("  TOP 20 valeurs IBAN_BENEF (payment.iban_source) :")
+        p("      [✓] = présent dans iban_map débiteur, [✗] = inconnu")
+        for iban, count in iban_dd["top_payment_iban"]:
+            marker = "✓" if iban in iban_dd["debtor_iban_set"] else "✗"
+            p(f"    [{marker}] {iban[:35]:<35} ({count:>5,} occurrences)")
+        p("")
+        p("  TOP 20 IBAN débiteurs (debtors.IBAN / mandate_id_RUM / identifiers_3) :")
+        p("      [✓] = vu aussi côté paiements, [✗] = jamais reçu")
+        for iban in iban_dd["top_debtor_iban"]:
+            marker = "✓" if iban in iban_dd["payment_iban_set"] else "✗"
+            p(f"    [{marker}] {iban[:35]:<35}")
+        p("")
+
     p("─" * 78)
     p(" Causes d'échec (paiements non-matchés)")
     p("─" * 78)
