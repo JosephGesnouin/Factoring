@@ -124,18 +124,48 @@ def parse_amount(v: Any) -> float | None:
 
 
 def parse_date(v: Any) -> date | None:
+    """Parse une date avec tolérance multi-format.
+
+    Format primaire (production) : ``%Y-%m-%d %H:%M:%S`` (ISO datetime).
+    Fallbacks gérés : ISO date pure, FR (dd/mm/yyyy), US, allemand,
+    compact, et ISO 8601 avec T. Si aucun format ne matche, pandas
+    fait un dernier essai d'auto-détection.
+    """
     s = _s(v).strip()
     if not s:
         return None
+    # Fast path : format de production placé EN PREMIER pour minimiser
+    # les ValueError sur les gros volumes.
     for fmt in (
-        "%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y", "%Y/%m/%d",
-        "%d.%m.%Y", "%Y%m%d",
-        "%Y-%m-%d %H:%M:%S", "%d/%m/%Y %H:%M:%S",
+        "%Y-%m-%d %H:%M:%S",       # 2026-05-18 00:00:00   ← production
+        "%Y-%m-%d",                # 2026-05-18
+        "%d/%m/%Y",                # 18/05/2026 (FR)
+        "%d/%m/%Y %H:%M:%S",
+        "%d-%m-%Y",
+        "%Y/%m/%d",
+        "%d.%m.%Y",                # 18.05.2026 (DE)
+        "%Y%m%d",                  # 20260518
+        "%Y-%m-%dT%H:%M:%S",       # 2026-05-18T00:00:00 (ISO 8601)
+        "%Y-%m-%d %H:%M:%S.%f",    # avec microsecondes
     ):
         try:
             return datetime.strptime(s, fmt).date()
         except ValueError:
             continue
+    # Filet de sécurité : pandas auto-detect (permissif, plus lent).
+    try:
+        ts = pd.to_datetime(s, errors="coerce", dayfirst=False)
+        if pd.notna(ts):
+            return ts.date()
+    except Exception:
+        pass
+    # Dernier essai en interprétant le jour en premier (formats FR ambigus).
+    try:
+        ts = pd.to_datetime(s, errors="coerce", dayfirst=True)
+        if pd.notna(ts):
+            return ts.date()
+    except Exception:
+        pass
     return None
 
 
