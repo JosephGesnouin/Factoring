@@ -117,6 +117,12 @@ class Debtor:
     sector: str | None = None
     open_invoices: list[Invoice] = field(default_factory=list)
     open_credits: list[CreditNote] = field(default_factory=list)
+    # Champs métier additionnels (alignés sur le schéma debtors_all.csv)
+    language_code: str | None = None
+    currency_code: str | None = None
+    credit_limit_request: float | None = None  # Limite de crédit (exposition max)
+    funding_limit: float | None = None         # Limite de financement
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

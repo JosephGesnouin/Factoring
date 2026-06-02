@@ -110,52 +110,64 @@ Décision prise au lancement (`app/streamlit_app.py`) :
 Les CSV doivent être au format `;` (point-virgule). Encoding au choix :
 UTF-8, UTF-8-BOM, Latin-1 ou CP1252 — auto-détecté.
 
-### `payments_all.csv`
+### `payments_all.csv` (Règlements — cash, délais, flux)
 
-Colonnes obligatoires (les autres sont ignorées) :
+| Colonne          | Description                                       | Mapping vers `Payment`     |
+|------------------|---------------------------------------------------|----------------------------|
+| `MT_REGLT_DEV`   | Montant du paiement (devise)                      | `Payment.amount`           |
+| `DT_REGLT`       | Date de règlement (paiement reçu)                 | `Payment.date`             |
+| `DT_VAL`         | Date de valeur (crédit effectif)                  | metadata + fallback date   |
+| `DT_SAISIE`      | Date de saisie                                    | metadata                   |
+| `IBAN_BENEF`     | **CLÉ** : IBAN bénéficiaire = vIBAN dédié débiteur côté factor | `Payment.iban_source` |
+| `_source_extract`| Période / extract de données                      | metadata                   |
+| `CODE_DEV`       | Code devise (optionnel)                           | `Payment.currency`         |
 
-| Colonne          | Description                                  | Mapping vers `Payment`     |
-|------------------|----------------------------------------------|----------------------------|
-| `DT_REGLT`       | Date de règlement (FR `dd/mm/yyyy` ou ISO)   | `Payment.date`             |
-| `DT_VAL`         | Date valeur (fallback si `DT_REGLT` vide)    | `Payment.date` (fallback)  |
-| `LIB_REGLT`      | Libellé du règlement (libellé bancaire brut) | `Payment.label_raw`        |
-| `LIB_SAISIE`     | Libellé de saisie (concaténé au précédent)   | `Payment.label_raw`        |
-| `CODE_DEV`       | Code devise ISO (`EUR`, `USD`, `GBP`, `CHF`) | `Payment.currency`         |
-| `MT_REGLT_DEV`   | Montant en devise (FR `1 234,56` accepté)    | `Payment.amount`           |
-| `IBAN_EMETT`     | IBAN de l'émetteur du virement               | `Payment.iban_source`      |
-| `IBAN_BENEF`     | IBAN bénéficiaire (factor) — *non utilisé*   | —                          |
+> ⚠️ **C'est `IBAN_BENEF` la clé**, PAS `IBAN_EMETT`. En factoring, le débiteur
+> paye sur un vIBAN (compte virtuel) dédié à lui chez la factor. Ce vIBAN se
+> retrouve dans `IBAN_BENEF` côté paiement et doit matcher la colonne `IBAN`
+> du débiteur.
 
-### `debtors_all.csv`
+> Ce schéma N'A PAS de libellé bancaire (`LIB_REGLT`/`LIB_SAISIE`).
+> L'identification du débiteur repose donc **uniquement** sur le mapping
+> IBAN_BENEF → IBAN débiteur. Si ton extract contient quand même un libellé,
+> il sera chargé en bonus (le parseur template-based l'exploitera).
 
-| Colonne                  | Description                          | Mapping                   |
-|--------------------------|--------------------------------------|---------------------------|
-| `client_debtor_number`   | Identifiant débiteur (clé jointure)  | `Debtor.id`               |
-| `legacy_debtor_number`   | Identifiant legacy (fallback)        | `Debtor.id` (fallback)    |
-| `debtor_name`            | Nom commercial                       | `Debtor.name`             |
-| `IBAN` ⮕ `identifiers_3` ⮕ `identifiers_2` ⮕ `identifiers_1` | IBAN du débiteur. Le loader essaie ces colonnes dans l'ordre, première non vide gagne. | `Debtor.iban` + index IBAN→débiteur |
-| `country_code`           | Pays (ISO 2)                         | `Debtor.country`          |
+### `debtors_all.csv` (Débiteurs — risque, géographie, solvabilité)
 
-> **Si tes IBAN sont ailleurs**, ajoute le nom de colonne dans la
-> constante `IBAN_DEBTOR_FALLBACK_COLS` de `reconciliation/loaders.py`.
+| Colonne                | Description                          | Mapping                          |
+|------------------------|--------------------------------------|----------------------------------|
+| `client_debtor_number` | Identifiant unique débiteur          | `Debtor.id`                      |
+| `debtor_name`          | Nom du débiteur                      | `Debtor.name`                    |
+| `country_code`         | Pays                                 | `Debtor.country`                 |
+| `language_code`        | Langue                               | `Debtor.language_code`           |
+| `currency_code`        | Devise                               | `Debtor.currency_code`           |
+| `credit_limit_request` | Limite de crédit (exposition max)    | `Debtor.credit_limit_request`    |
+| `funding_limit`        | Limite de financement                | `Debtor.funding_limit`           |
+| `IBAN` ⮕ `mandate_id_RUM` ⮕ `identifiers_3` | IBAN du débiteur (essai dans l'ordre) | `Debtor.iban` + index IBAN→débiteur |
 
-### `invoices_all.csv`
+> Le loader essaie les colonnes IBAN dans l'ordre `IBAN`,
+> `mandate_id_RUM`, `identifiers_3` (cf. `IBAN_DEBTOR_FALLBACK_COLS`).
+> Si tes IBAN sont ailleurs, ajoute la colonne dans cette constante.
 
-| Colonne                     | Description                                   | Mapping                   |
-|-----------------------------|-----------------------------------------------|---------------------------|
-| `document_number`           | Référence facture                             | `Invoice.reference`       |
-| `debtor_number`             | ID débiteur (joint avec `debtors`)            | `Invoice.debtor_id`       |
-| `debtor_legacy_nr`          | ID legacy (fallback)                          | `Invoice.debtor_id`       |
-| `document_date`             | Date d'émission                               | `Invoice.issue_date`      |
-| `due_date`                  | Date d'échéance                               | `Invoice.due_date`        |
-| `document_amount`           | Montant TTC                                   | `Invoice.amount`          |
-| `document_balance_amount`   | Solde restant dû (filtré : `> 0` = ouverte)   | filtre + `metadata.balance` |
-| `currency`                  | Devise                                        | `Invoice.currency`        |
-| `order_number`              | Numéro de commande (PO)                       | `Invoice.po_number` *(utilisé par C1-R006)* |
-| `reference_invoice_number`  | BL / référence interne                        | `Invoice.bl_number` *(utilisé par C1-R007)* |
+### `invoices_all.csv` (Factures — activité, encours, risque)
+
+| Colonne                   | Description                                   | Mapping                                       |
+|---------------------------|-----------------------------------------------|-----------------------------------------------|
+| `document_number`         | Numéro de facture                             | `Invoice.reference`                           |
+| `document_amount`         | Montant de la facture                         | `Invoice.amount`                              |
+| `document_balance_amount` | Solde restant dû (encours)                    | filtre `> 0` (ouvertes) + `metadata.balance`  |
+| `document_date`           | Date d'émission                               | `Invoice.issue_date`                          |
+| `due_date`                | Date d'échéance                               | `Invoice.due_date`                            |
+| `document_type`           | Facture / Avoir                               | `metadata.document_type` + `is_credit_note`   |
+| `debtor_number`           | ID débiteur (joint avec `debtors`)            | `Invoice.debtor_id`                           |
+| `client_number`           | Client (cédant)                               | `metadata.client_number`                      |
+| `agreement_number`        | Contrat de factoring                          | `metadata.agreement_number`                   |
+| `dispute_reason_code`     | Code litige (facture bloquée)                 | `metadata.disputed=True` si non vide          |
+| `currency`                | Devise                                        | `Invoice.currency`                            |
+| `_source_extract`         | Période / extract                             | `metadata.source_extract`                     |
 
 > **Filtre par défaut** : seules les factures avec `document_balance_amount > 0`
-> sont chargées (= factures encore ouvertes). Pour charger toutes les
-> factures, modifier l'appel à `load_from_dir(..., only_open_invoices=False)`.
+> sont chargées. Désactiver avec `load_from_dir(..., only_open_invoices=False)`.
 
 ---
 

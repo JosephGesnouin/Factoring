@@ -3,7 +3,7 @@ Diagnostic post-batch : pourquoi un paiement n'a-t-il pas matché ?
 
 Pour chaque paiement non-résolu, classifie la **cause** de l'échec en
 remontant la trace :
-- 1. Pas d'IBAN_EMETT sur le paiement.
+- 1. Pas d'IBAN_BENEF sur le paiement.
 - 2. IBAN présent mais inconnu dans la map débiteurs.
 - 3. IBAN connu mais le débiteur n'a aucune facture ouverte.
 - 4. Aucune référence extraite du libellé (C0 vide).
@@ -37,10 +37,10 @@ R_CONFIDENCE_LOW = "8_match_below_confidence_threshold"
 R_OTHER = "9_other"
 
 REASON_LABELS = {
-    R_NO_IBAN_NO_REFS:          "Aucun IBAN_EMETT ET aucune référence dans le libellé",
-    R_NO_IBAN_HAS_REFS:         "Pas d'IBAN_EMETT, mais des refs extraites du libellé (pas matchées en BDD)",
-    R_IBAN_UNKNOWN_NO_REFS:     "IBAN_EMETT renseigné mais inconnu, ET aucune réf dans le libellé",
-    R_IBAN_UNKNOWN_HAS_REFS:    "IBAN_EMETT renseigné mais inconnu — match repose donc sur les refs (non matchées)",
+    R_NO_IBAN_NO_REFS:          "Aucun IBAN_BENEF ET aucune référence dans le libellé",
+    R_NO_IBAN_HAS_REFS:         "Pas d'IBAN_BENEF, mais des refs extraites du libellé (pas matchées en BDD)",
+    R_IBAN_UNKNOWN_NO_REFS:     "IBAN_BENEF renseigné mais inconnu, ET aucune réf dans le libellé",
+    R_IBAN_UNKNOWN_HAS_REFS:    "IBAN_BENEF renseigné mais inconnu — match repose donc sur les refs (non matchées)",
     R_DEBTOR_NO_OPEN_INVOICES:  "Débiteur identifié mais sans facture ouverte sur la fenêtre",
     R_REFS_DONT_HASH_MATCH:     "Refs extraites du libellé mais aucune ne match une facture en BDD (formats divergents ?)",
     R_AMOUNT_MISMATCH:          "Facture candidate trouvée mais écart de montant trop important",
@@ -227,7 +227,7 @@ def format_report(report: DiagnosticReport) -> str:
       f"({report.payments_with_iban_known*100/max(report.total_payments,1):.1f}%)")
     p(f"  Paiements IBAN inconnu      : {report.payments_with_iban_unknown:>7,} "
       f"({report.payments_with_iban_unknown*100/max(report.total_payments,1):.1f}%)")
-    p(f"  Paiements sans IBAN_EMETT   : {report.payments_with_no_iban:>7,} "
+    p(f"  Paiements sans IBAN_BENEF   : {report.payments_with_no_iban:>7,} "
       f"({report.payments_with_no_iban*100/max(report.total_payments,1):.1f}%)")
     p("")
     p("─" * 78)

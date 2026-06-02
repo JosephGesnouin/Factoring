@@ -5,33 +5,46 @@ Charge ``debtors_all.csv``, ``invoices_all.csv``, ``payments_all.csv``
 (séparateur ';') et les convertit en objets ``Debtor`` / ``Invoice`` /
 ``Payment`` directement consommables par l'orchestrateur.
 
-Colonnes attendues (extraites de la production factoring) :
+Schéma de référence (aligné sur la production observée) :
 
-**payments_all.csv**
-    DT_REGLT, DT_VAL, DT_SAISIE, LIB_REGLT, LIB_SAISIE,
-    CODE_DEV, MT_REGLT_DEV, IBAN_BENEF, IBAN_EMETT,
-    _source_file, _source_extract
+**payments_all.csv** (Règlements — cash, délais, flux de paiement)
+    MT_REGLT_DEV    → Montant du paiement (devise)
+    DT_REGLT        → Date de règlement (paiement reçu)
+    DT_VAL          → Date de valeur (crédit effectif)
+    DT_SAISIE       → Date de saisie
+    IBAN_BENEF      → IBAN bénéficiaire = vIBAN dédié au débiteur côté
+                       factor. C'est la CLÉ d'identification du débiteur.
+    _source_extract → Période / extract de données
+    (CODE_DEV       → Code devise — optionnel selon extract)
 
-**debtors_all.csv**
-    client_number, agreement_number, client_debtor_number, debtor_name,
-    ADR1, ADR2, ADR3, postal_code, town, state, country_code,
-    telephone_number, fax_number, email, contact_first_name,
-    contact_last_name, language_code, identifiers_3, credit_limit_request,
-    currency_code, funding_limit, IBAN, category_code, mandate_id_RUM,
-    mandate_signed_date, legacy_debtor_number, _source_file, _source_extract
+    Note : ce schéma N'A PAS de libellé bancaire (LIB_REGLT/LIB_SAISIE).
+    L'identification du débiteur repose donc ENTIÈREMENT sur IBAN_BENEF.
 
-**invoices_all.csv**
-    record_type, schedule_type_code, client_number, agreement_number,
-    debtor_legacy_nr, document_number, document_type, currency,
-    debtor_number, document_date, document_amount, document_balance_amount,
-    funding_disapproved_amount, funding_disapproval_date,
-    funding_disapproval_code, credit_disapproval_amount,
-    credit_disapproval_code, due_date, order_number,
-    reference_invoice_number, additional_information,
-    discount_amount_1..3, discount_date_1..3, discount_percentage_1..3,
-    expected_payment_type, dispute_reason_code, dispute_date,
-    dispute_comments, dispute_reason_code_2, dispute_date_2,
-    dispute_comments_2, _source_file, _source_extract
+**debtors_all.csv** (Débiteurs — risque, géographie, solvabilité)
+    client_debtor_number  → Identifiant unique débiteur
+    debtor_name           → Nom du débiteur
+    country_code          → Pays
+    language_code         → Langue
+    credit_limit_request  → Limite de crédit (exposition max)
+    funding_limit         → Limite de financement
+    IBAN                  → IBAN disponible (paiement automatisé)
+    currency_code         → Devise
+    mandate_id_RUM        → RUM SEPA (fallback IBAN si présent)
+    identifiers_3         → Fallback IBAN secondaire
+
+**invoices_all.csv** (Factures — activité + encours + risque)
+    document_number          → Numéro de facture
+    document_amount          → Montant de la facture
+    document_balance_amount  → Solde restant dû (encours)
+    document_date            → Date d'émission
+    due_date                 → Date d'échéance
+    document_type            → Facture / Avoir
+    debtor_number            → Identifiant débiteur
+    client_number            → Client (cédant)
+    agreement_number         → Contrat de factoring
+    dispute_reason_code      → Code litige (facture bloquée)
+    currency                 → Devise
+    _source_extract          → Période / extract
 
 Encoding : auto (utf-8, utf-8-sig, latin-1, cp1252).
 """
@@ -184,9 +197,14 @@ def _extract_iban(row: pd.Series) -> str:
 def build_debtors(df: pd.DataFrame) -> tuple[list[Debtor], dict[str, str]]:
     """Retourne ``(debtors, iban_to_debtor_id)``.
 
-    Cherche l'IBAN dans plusieurs colonnes possibles (cf.
-    ``IBAN_DEBTOR_FALLBACK_COLS``) — utile quand le schéma source range
-    l'IBAN dans ``identifiers_3`` au lieu de ``IBAN``.
+    Renseigne aussi les champs métier exposés par le schéma :
+    ``language_code``, ``currency_code``, ``credit_limit_request``,
+    ``funding_limit`` — utilisés downstream pour le scoring risque et
+    le profilage débiteur.
+
+    L'IBAN est cherché dans plusieurs colonnes (cf.
+    ``IBAN_DEBTOR_FALLBACK_COLS``) car selon les exports il peut être
+    dans ``IBAN``, ``mandate_id_RUM`` ou ``identifiers_3``.
     """
     debtors: list[Debtor] = []
     iban_map: dict[str, str] = {}
@@ -202,6 +220,10 @@ def build_debtors(df: pd.DataFrame) -> tuple[list[Debtor], dict[str, str]]:
             iban=iban or None,
             country=_s(row.get("country_code")).strip() or None,
             payment_terms=30,
+            language_code=_s(row.get("language_code")).strip() or None,
+            currency_code=_s(row.get("currency_code")).strip() or None,
+            credit_limit_request=parse_amount(row.get("credit_limit_request")),
+            funding_limit=parse_amount(row.get("funding_limit")),
         )
         debtors.append(d)
         if iban:
@@ -210,10 +232,19 @@ def build_debtors(df: pd.DataFrame) -> tuple[list[Debtor], dict[str, str]]:
 
 
 def build_invoices(df: pd.DataFrame, only_open: bool = True) -> list[Invoice]:
-    """Construit la liste d'``Invoice``.
+    """Construit la liste d'``Invoice`` depuis ``invoices_all.csv``.
 
-    Si ``only_open`` (défaut), ne garde que les lignes avec
-    ``document_balance_amount > 0``.
+    Schéma supporté (cf. en-tête du module) :
+        document_number, document_amount, document_balance_amount,
+        document_date, due_date, document_type, debtor_number,
+        client_number, agreement_number, dispute_reason_code, currency.
+
+    Si ``only_open`` (défaut), ne garde que les factures avec
+    ``document_balance_amount > 0`` (encours non soldé).
+
+    Les factures avec ``dispute_reason_code`` non vide sont marquées
+    comme litigieuses dans la metadata (``disputed=True``) — elles
+    restent chargées mais downstream peut les déprioriser.
     """
     invoices: list[Invoice] = []
     for _, row in df.iterrows():
@@ -229,13 +260,18 @@ def build_invoices(df: pd.DataFrame, only_open: bool = True) -> list[Invoice]:
         debtor_id = (_s(row.get("debtor_number")).strip()
                      or _s(row.get("debtor_legacy_nr")).strip())
 
+        dispute_code = _s(row.get("dispute_reason_code")).strip()
+        doc_type = _s(row.get("document_type")).strip()
+        # On standardise le document_type : "Avoir" / "Facture" → marquage.
+        is_credit_note = doc_type.upper().startswith(("AV", "CR"))
+
         invoices.append(Invoice(
             id=f"INV-{doc_num}",
             reference=doc_num,
             debtor_id=debtor_id,
             amount=amount,
             amount_ht=amount,  # pas de HT explicite dans le schéma
-            currency=parse_currency(row.get("currency")),
+            currency=parse_currency(row.get("currency") or row.get("currency_code")),
             issue_date=parse_date(row.get("document_date")),
             due_date=parse_date(row.get("due_date")),
             po_number=_s(row.get("order_number")).strip() or None,
@@ -243,9 +279,15 @@ def build_invoices(df: pd.DataFrame, only_open: bool = True) -> list[Invoice]:
             status="open" if (balance is None or balance > 0) else "closed",
             metadata={
                 "balance": balance,
-                "document_type": _s(row.get("document_type")),
+                "document_type": doc_type,
+                "is_credit_note": is_credit_note,
+                "disputed": bool(dispute_code),
+                "dispute_reason_code": dispute_code or None,
                 "agreement_number": _s(row.get("agreement_number")),
                 "client_number": _s(row.get("client_number")),
+                "source_extract": (_s(row.get("_source_extract")).strip()
+                                   or _s(row.get("source_extract")).strip()
+                                   or None),
             },
         ))
     return invoices
@@ -256,18 +298,33 @@ def build_payments(
     limit: int | None = None,
     dedup: bool = True,
 ) -> list[Payment]:
-    """Construit la liste de ``Payment``.
+    """Construit la liste de ``Payment`` depuis ``payments_all.csv``.
 
-    Si ``dedup`` (défaut), retire les doublons exacts au niveau du CSV.
-    La clé de dédoublonnage est ``IBAN_EMETT + MT_REGLT_DEV + DT_REGLT +
-    LIB_REGLT`` : ces lignes correspondent à des extractions répétées
-    de la même opération bancaire, pas à des cas métier ambigus.
-    Le nombre de doublons retirés est loggué en INFO.
+    Schéma supporté :
+        MT_REGLT_DEV     → ``Payment.amount`` (montant)
+        DT_REGLT         → ``Payment.date`` (date de règlement)
+        DT_VAL           → fallback date
+        DT_SAISIE        → conservé en metadata
+        IBAN_BENEF       → ``Payment.iban_source`` (CLÉ d'identification
+                           du débiteur : vIBAN dédié côté factor)
+        _source_extract  → metadata (période / extract)
+        (CODE_DEV        → devise — optionnel)
+
+    Note : ce schéma N'A PAS de libellé bancaire (LIB_REGLT/LIB_SAISIE),
+    donc ``Payment.label_raw`` reste vide. L'identification du débiteur
+    repose entièrement sur le lookup ``IBAN_BENEF → debtor.IBAN``.
+    Si optionnellement LIB_REGLT ou LIB_SAISIE sont présents (extracts
+    enrichis), ils sont chargés comme bonus.
+
+    Si ``dedup`` (défaut), retire les doublons exacts du CSV. La clé
+    est ``IBAN_BENEF + MT_REGLT_DEV + DT_REGLT`` (+ libellé si présent).
     """
     if dedup and len(df):
         before = len(df)
-        key_cols = [c for c in ("IBAN_EMETT", "MT_REGLT_DEV",
-                                "DT_REGLT", "LIB_REGLT") if c in df.columns]
+        # Clé : tout ce qui identifie l'opération métier
+        candidate_keys = ("IBAN_BENEF", "MT_REGLT_DEV", "DT_REGLT",
+                          "LIB_REGLT", "LIB_SAISIE")
+        key_cols = [c for c in candidate_keys if c in df.columns]
         if key_cols:
             df = df.drop_duplicates(subset=key_cols, keep="first").reset_index(drop=True)
             dropped = before - len(df)
@@ -285,18 +342,33 @@ def build_payments(
         if amount is None or amount == 0.0:
             continue
 
+        # Libellé : optionnel dans ce schéma. Si présent dans l'extract
+        # (LIB_REGLT/LIB_SAISIE), on les concatène. Sinon vide.
         lib_reglt = _s(row.get("LIB_REGLT")).strip()
         lib_saisie = _s(row.get("LIB_SAISIE")).strip()
         label_raw = " | ".join(s for s in (lib_reglt, lib_saisie) if s)
 
-        payments.append(Payment(
+        p = Payment(
             id=f"PAY-{idx:06d}",
             amount=amount,
-            currency=parse_currency(row.get("CODE_DEV")),
+            currency=parse_currency(row.get("CODE_DEV") or row.get("currency_code")),
             date=parse_date(row.get("DT_REGLT")) or parse_date(row.get("DT_VAL")),
             label_raw=label_raw,
-            iban_source=normalise_iban(row.get("IBAN_EMETT")),
-        ))
+            # ⚠️ IBAN_BENEF (et NON IBAN_EMETT) : c'est l'IBAN sur lequel
+            # le débiteur a payé, qui correspond au vIBAN dédié à ce
+            # débiteur côté factor → permet le mapping inverse débiteur.
+            iban_source=normalise_iban(row.get("IBAN_BENEF")),
+        )
+        # Conserve DT_VAL, DT_SAISIE et _source_extract en metadata
+        # pour exploitation downstream (analyse cash, audit).
+        p.metadata = {
+            "dt_val": _s(row.get("DT_VAL")).strip() or None,
+            "dt_saisie": _s(row.get("DT_SAISIE")).strip() or None,
+            "source_extract": (_s(row.get("_source_extract")).strip()
+                               or _s(row.get("source_extract")).strip()
+                               or None),
+        }
+        payments.append(p)
     return payments
 
 
@@ -498,11 +570,13 @@ def load_from_dir(
     # Échantillon des valeurs brutes des colonnes candidates IBAN —
     # utile pour debug quand le format empêche le match.
     diag["raw_iban_columns_sample"] = _sample_raw_iban_columns(df_debtors)
+    # Échantillon IBAN_BENEF (la clé d'identification du débiteur dans
+    # ce schéma — pas IBAN_EMETT qui n'existe pas).
     diag["raw_payments_iban_sample"] = (
-        df_payments["IBAN_EMETT"].astype(str).map(lambda s: s.strip())
+        df_payments["IBAN_BENEF"].astype(str).map(lambda s: s.strip())
         .pipe(lambda s: s[(s != "") & (s.str.lower() != "nan")])
         .head(10).tolist()
-        if "IBAN_EMETT" in df_payments.columns else []
+        if "IBAN_BENEF" in df_payments.columns else []
     )
     logger.info(
         "Data quality : IBAN match=%.1f%% (%d/%d), invoice→debtor match=%.1f%% (%d/%d)",
@@ -514,7 +588,7 @@ def load_from_dir(
         logger.warning(
             "Très peu d'IBAN paiement matchent un débiteur (%d%%). "
             "Le taux de réconciliation sera bas. "
-            "Vérifie que IBAN_EMETT correspond à la colonne IBAN de debtors_all.csv.",
+            "Vérifie que IBAN_BENEF (payments) correspond à la colonne IBAN (debtors).",
             int(diag["iban_match_rate"] * 100),
         )
     return LoadedData(debtors=debtors, invoices=invoices,
