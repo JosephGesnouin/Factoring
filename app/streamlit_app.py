@@ -198,25 +198,10 @@ MONTH_ORDER = ["Janvier","Fevrier","Mars","Avril","Mai","Juin",
 LAYER_NAMES = {1:"C1 Exact",2:"C2 Regles Metier",3:"C3 NLP/Fuzzy",6:"C6 Revue Humaine"}
 LAYER_COLORS = {"C1 Exact":C_GREEN,"C2 Regles Metier":C_YELLOW,"C3 NLP/Fuzzy":C_CYAN,"C6 Revue Humaine":C_RED}
 
-# ── Sidebar ──
+# ── Sidebar (conservée mais NON BLOQUANTE si masquée par le proxy) ──
 with st.sidebar:
     st.markdown("### 🏦 Reconciliation IA")
     st.caption("Factoring & Finance Receivables")
-    st.divider()
-    _nav_pages = [
-        "Executive Summary",
-        "Architecture",
-        "Factures",
-        "Paiements",
-        "Simulation Live",
-        "Analyse Debiteurs",
-        "Paiements par Couche",
-        "Revue Humaine",
-        "Mapping Complet",
-        "Profils Debiteurs IA",
-        "Deep Dive",
-    ]
-    page = st.radio("Navigation", _nav_pages, label_visibility="collapsed")
     st.divider()
     st.caption("Architecture 6 couches")
     if _USE_REAL:
@@ -232,6 +217,39 @@ with st.sidebar:
             st.info("Mode : **Simulation** (50 debiteurs, 5k paiements)\n\n"
                     "Pour utiliser tes vrais fichiers : voir `DATA_SETUP.md`.",
                     icon="🧪")
+
+# ── Navigation principale en HAUT (toujours visible, indépendant du proxy) ──
+_nav_pages = [
+    "Executive Summary",
+    "Architecture",
+    "Factures",
+    "Paiements",
+    "Simulation Live",
+    "Analyse Debiteurs",
+    "Paiements par Couche",
+    "Revue Humaine",
+    "Mapping Complet",
+    "Profils Debiteurs IA",
+    "Deep Dive",
+]
+
+# Badge mode en haut de page (visible même sans sidebar)
+_mode_col1, _mode_col2 = st.columns([3, 1])
+with _mode_col2:
+    if _USE_REAL:
+        st.success(f"📁 Données réelles", icon="✅")
+    else:
+        st.info(f"🧪 Simulation", icon="ℹ️")
+
+# Navigation horizontale toujours visible
+page = st.radio(
+    "Navigation",
+    options=_nav_pages,
+    horizontal=True,
+    label_visibility="collapsed",
+    key="main_nav",
+)
+st.divider()
 
 data = load_data()
 df = data["df"]
