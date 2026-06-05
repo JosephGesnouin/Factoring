@@ -32,24 +32,20 @@ from reconciliation.orchestrator import ReconciliationOrchestrator
 
 logger = logging.getLogger(__name__)
 
-# ── Logging ultra verbeux pour debug réel ──────────────────────────────
-# Activé par défaut quand on est en mode données réelles. Désactivable
-# via FACTORING_QUIET=1.
+# ── Logging discret pour ne pas polluer le rendu Streamlit ─────────────
+# Le rapport diagnostic est écrit dans un fichier à côté des CSV. Les
+# logs runtime restent au niveau WARNING par défaut (sauf si
+# FACTORING_DEBUG=1).
 def _setup_logging() -> None:
-    if os.environ.get("FACTORING_QUIET") == "1":
-        return
-    level = logging.DEBUG if os.environ.get("FACTORING_DEBUG") == "1" else logging.INFO
-    root = logging.getLogger()
-    # Évite la double config si Streamlit a déjà setup le root logger.
-    if not any(isinstance(h, logging.StreamHandler) for h in root.handlers):
-        h = logging.StreamHandler(sys.stdout)
-        h.setFormatter(logging.Formatter(
-            "%(asctime)s %(levelname)-7s %(name)s: %(message)s",
-            datefmt="%H:%M:%S",
-        ))
-        root.addHandler(h)
-    root.setLevel(level)
+    if os.environ.get("FACTORING_DEBUG") == "1":
+        level = logging.DEBUG
+    elif os.environ.get("FACTORING_VERBOSE") == "1":
+        level = logging.INFO
+    else:
+        # Mode silencieux par défaut : pas de pollution du rendu Streamlit
+        level = logging.WARNING
     logging.getLogger("reconciliation").setLevel(level)
+    logging.getLogger("app.real_data").setLevel(level)
 
 
 _setup_logging()
@@ -69,23 +65,11 @@ def run_real(data_dir: str | Path, payments_limit: int | None = None) -> dict[st
     """
     data_dir = Path(data_dir)
     t_start = time.time()
-
-    logger.info("=" * 78)
-    logger.info(" PIPELINE FACTORING — RUN DÉMARRAGE")
-    logger.info("=" * 78)
-    logger.info("Data dir : %s", data_dir.resolve())
-
     loaded = load_from_dir(data_dir, payments_limit=payments_limit)
     debtors  = loaded.debtors
     invoices = loaded.invoices
     payments = loaded.payments
     iban_map = loaded.iban_map
-
-    logger.info("Loaded   : %d debtors / %d invoices / %d payments",
-                len(debtors), len(invoices), len(payments))
-    logger.info("IBAN map : %d entries (couverture débiteurs : %.1f%%)",
-                len(iban_map),
-                len(iban_map) * 100 / max(len(debtors), 1))
 
     # Pré-indexation : invoices par débiteur (utilisé par C1-R005 solde total)
     inv_by_debtor = defaultdict(list)
@@ -99,25 +83,21 @@ def run_real(data_dir: str | Path, payments_limit: int | None = None) -> dict[st
     orch = ReconciliationOrchestrator(config)
     orch.setup(invoices, debtors=debtors, iban_debtor_map=iban_map)
 
-    logger.info("Pipeline : process_batch(rebuild_every=100)")
     t0 = time.time()
     results = orch.process_batch(payments, invoices, rebuild_every=100)
     wall = time.time() - t0
     orch.debtor_profiler.learn(results)
-    logger.info("Pipeline : terminé en %.1fs (%.0f paiements/s)",
-                wall, len(payments) / max(wall, 0.001))
 
     # ── Diagnostic post-batch ──────────────────────────────────────────
-    logger.info("Génération du rapport diagnostic...")
+    # On NE PRINT PAS le rapport pour ne pas polluer le rendu Streamlit.
+    # Le rapport est uniquement écrit dans un fichier daté à côté des CSV.
+    # Pour le voir : ouvre le fichier .txt OU lance run_real_data.py en CLI.
     report_text = run_diagnostic(payments, results, invoices, iban_map)
-    # Print immédiat sur stdout (visible dans le terminal Streamlit)
-    print(report_text, flush=True)
-    # Sauvegarde dans un fichier daté à côté des CSV
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = data_dir / f"factoring_logs_{ts}.txt"
     try:
         log_path.write_text(report_text, encoding="utf-8")
-        logger.info("Rapport écrit dans : %s", log_path)
+        logger.info("Rapport diagnostic écrit dans : %s", log_path)
     except Exception as e:
         logger.warning("Impossible d'écrire le log : %s", e)
 
@@ -172,8 +152,7 @@ def run_real(data_dir: str | Path, payments_limit: int | None = None) -> dict[st
         "balance": inv.metadata.get("balance"),
     } for inv in invoices])
 
-    logger.info("Construction des DataFrames terminée. Run total : %.1fs",
-                time.time() - t_start)
+    _ = time.time() - t_start  # mesure dispo dans les variables locales
 
     return {
         "df": df,
