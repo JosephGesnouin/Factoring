@@ -136,8 +136,23 @@ st.markdown("""
     /* Plotly transparent */
     .js-plotly-plot .plotly .main-svg { background: transparent !important; }
 
-    /* Hide streamlit branding */
-    #MainMenu, footer, header { visibility: hidden; }
+    /* Hide streamlit branding — mais GARDE le header visible car il
+       contient le bouton de collapse/expand de la sidebar dans les
+       versions récentes de Streamlit. */
+    #MainMenu, footer { visibility: hidden; }
+
+    /* Force la sidebar à toujours rester accessible et visible (anti
+       bug d'iframe / proxy datalab qui peut la masquer). */
+    section[data-testid="stSidebar"] {
+        display: block !important;
+        visibility: visible !important;
+        min-width: 240px !important;
+    }
+    /* S'assurer que le bouton de collapse reste cliquable */
+    button[kind="header"], [data-testid="collapsedControl"] {
+        display: block !important;
+        visibility: visible !important;
+    }
 
     /* Responsive */
     @media (max-width: 900px) { .kpi-grid { grid-template-columns: repeat(2,1fr); } }
